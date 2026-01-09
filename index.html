@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Delhi Water-Logging Monitoring Dashboard - Real-time monsoon preparedness and risk assessment system for authorities">
+    <title>Delhi Monsoon Monitoring Dashboard | Authority Control Center</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <!-- Top Bar -->
+    <header class="top-bar">
+        <div class="top-bar-left">
+            <div class="logo">
+                <i class="fas fa-cloud-rain"></i>
+                <span>Delhi Monsoon Command</span>
+            </div>
+            <div class="city-selector">
+                <i class="fas fa-map-marker-alt"></i>
+                <select id="citySelect">
+                    <option value="delhi">New Delhi</option>
+                    <option value="all">All Wards</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="top-bar-center">
+            <div class="live-time">
+                <i class="fas fa-clock"></i>
+                <span id="currentTime">Loading...</span>
+            </div>
+        </div>
+
+        <div class="top-bar-right">
+            <div class="alert-summary">
+                <div class="alert-item critical">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span id="criticalCount">0</span>
+                    <small>Critical</small>
+                </div>
+                <div class="alert-item warning">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span id="warningCount">0</span>
+                    <small>Alert</small>
+                </div>
+                <div class="alert-item safe">
+                    <i class="fas fa-check-circle"></i>
+                    <span id="safeCount">0</span>
+                    <small>Safe</small>
+                </div>
+            </div>
+            <button class="report-btn" id="reportIncidentBtn">
+                <i class="fas fa-camera"></i>
+                Report Incident
+            </button>
+            <button class="export-btn" id="exportReport">
+                <i class="fas fa-download"></i>
+                Export Report
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="main-container">
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+
+            <!-- Smart Filters Section -->
+            <div class="sidebar-section">
+                <h3><i class="fas fa-filter"></i> Smart Filters</h3>
+
+                <div class="filter-group">
+                    <label>Ward</label>
+                    <select id="wardFilter">
+                        <option value="all">All Wards</option>
+                        <option value="central">Central Delhi</option>
+                        <option value="north">North Delhi</option>
+                        <option value="south">South Delhi</option>
+                        <option value="east">East Delhi</option>
+                        <option value="west">West Delhi</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Risk Level</label>
+                    <select id="riskFilter">
+                        <option value="all">All Levels</option>
+                        <option value="critical">Critical</option>
+                        <option value="alert">Alert</option>
+                        <option value="safe">Safe</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Incident Type</label>
+                    <select id="incidentFilter">
+                        <option value="all">All Types</option>
+                        <option value="waterlogging">Water-logging</option>
+                        <option value="pothole">Potholes</option>
+                        <option value="drainage">Drainage Block</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Time Window</label>
+                    <select id="timeFilter">
+                        <option value="live">Live (Now)</option>
+                        <option value="1h">Last 1 Hour</option>
+                        <option value="3h">Last 3 Hours</option>
+                        <option value="24h">Last 24 Hours</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Layer Controls -->
+            <div class="sidebar-section">
+                <h3><i class="fas fa-layer-group"></i> Map Layers</h3>
+
+                <div class="layer-toggle">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="rainfallLayer" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <span><i class="fas fa-cloud-showers-heavy" style="color: #2C74B3;"></i> Rainfall Intensity</span>
+                </div>
+
+                <div class="layer-toggle">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="drainageLayer" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <span><i class="fas fa-water" style="color: #144272;"></i> Drainage Network</span>
+                </div>
+
+                <div class="layer-toggle">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="incidentsLayer" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <span><i class="fas fa-map-pin" style="color: #FF4757;"></i> Live Incidents</span>
+                </div>
+
+                <div class="layer-toggle">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="trafficLayer">
+                        <span class="slider"></span>
+                    </label>
+                    <span><i class="fas fa-road" style="color: #FFB800;"></i> Traffic Risk</span>
+                </div>
+            </div>
+
+            <!-- Legend -->
+            <div class="sidebar-section legend">
+                <h3><i class="fas fa-info-circle"></i> Risk Classification</h3>
+
+                <div class="legend-item">
+                    <span class="legend-color safe"></span>
+                    <span class="legend-label">Safe (0-30%)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color alert"></span>
+                    <span class="legend-label">Alert (31-70%)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color critical"></span>
+                    <span class="legend-label">Critical (71-100%)</span>
+                </div>
+            </div>
+
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+
+            <!-- Interactive Risk Heatmap -->
+            <section class="map-container">
+                <div class="map-header">
+                    <h2><i class="fas fa-map"></i> Composite Risk Heatmap</h2>
+                    <div class="map-controls">
+                        <button class="map-btn" id="zoomIn"><i class="fas fa-plus"></i></button>
+                        <button class="map-btn" id="zoomOut"><i class="fas fa-minus"></i></button>
+                        <button class="map-btn" id="resetView"><i class="fas fa-home"></i></button>
+                    </div>
+                </div>
+
+                <div id="riskMap" class="risk-map">
+                    <!-- SVG Map with ward regions will be rendered here by JavaScript -->
+                    <div class="map-loading">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <p>Loading Risk Heatmap...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Bottom Info Panels - Tabbed Interface -->
+            <section class="info-panels">
+                <div class="panel-tabs">
+                    <button class="tab-btn active" data-panel="mpi"><i class="fas fa-chart-line"></i> MPI
+                        Dashboard</button>
+                    <button class="tab-btn" data-panel="alerts"><i class="fas fa-bell"></i> Rainfall Alerts</button>
+                    <button class="tab-btn" data-panel="incidents"><i class="fas fa-camera"></i> Live Incidents</button>
+                    <button class="tab-btn" data-panel="actions"><i class="fas fa-tasks"></i> Action Center</button>
+                    <button class="tab-btn" data-panel="infrastructure"><i class="fas fa-wrench"></i>
+                        Infrastructure</button>
+                    <button class="tab-btn" data-panel="performance"><i class="fas fa-chart-bar"></i>
+                        Performance</button>
+                </div>
+
+                <!-- MPI Dashboard Panel -->
+                <div class="panel-content active" id="panel-mpi">
+                    <div class="panel-header">
+                        <h3>Monsoon Preparedness Index (MPI)</h3>
+                        <p class="panel-subtitle">Ward-wise readiness assessment (0-100 scale)</p>
+                    </div>
+
+                    <div class="mpi-grid" id="mpiGrid">
+                        <!-- MPI cards will be generated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Rainfall Alerts Panel -->
+                <div class="panel-content" id="panel-alerts">
+                    <div class="panel-header">
+                        <h3>Short-Term Rainfall Alerts (1-3 Hours)</h3>
+                        <p class="panel-subtitle">Forecast vs Ward Failure Thresholds</p>
+                    </div>
+
+                    <div class="alert-timeline" id="alertTimeline">
+                        <!-- Alert cards will be generated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Live Incidents Panel -->
+                <div class="panel-content" id="panel-incidents">
+                    <div class="panel-header">
+                        <h3>Live Field Reporting & Validation</h3>
+                        <p class="panel-subtitle">Location-tagged incident uploads</p>
+                    </div>
+
+                    <div class="incident-feed" id="incidentFeed">
+                        <!-- Incident cards will be generated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Action Center Panel -->
+                <div class="panel-content" id="panel-actions">
+                    <div class="panel-header">
+                        <h3>Action-Oriented Decision Support</h3>
+                        <p class="panel-subtitle">Prioritized response recommendations</p>
+                    </div>
+
+                    <div class="action-grid">
+                        <div class="action-section">
+                            <h4><i class="fas fa-tools"></i> Drain Clearing Priority</h4>
+                            <div class="priority-list" id="drainPriority">
+                                <!-- Priority items will be generated dynamically -->
+                            </div>
+                        </div>
+
+                        <div class="action-section">
+                            <h4><i class="fas fa-truck"></i> Rapid Response Deployment</h4>
+                            <div class="deployment-list" id="deploymentList">
+                                <!-- Deployment items will be generated dynamically -->
+                            </div>
+                        </div>
+
+                        <div class="action-section">
+                            <h4><i class="fas fa-route"></i> Traffic Diversion Suggestions</h4>
+                            <div class="traffic-list" id="trafficList">
+                                <!-- Traffic items will be generated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Infrastructure Panel -->
+                <div class="panel-content" id="panel-infrastructure">
+                    <div class="panel-header">
+                        <h3>Infrastructure Stress Monitoring</h3>
+                        <p class="panel-subtitle">Drainage & road condition analysis</p>
+                    </div>
+
+                    <div class="infrastructure-grid">
+                        <div class="infra-section">
+                            <h4><i class="fas fa-water"></i> Drainage Stress Index</h4>
+                            <div class="drainage-stress" id="drainageStress">
+                                <!-- Drainage stress items will be generated dynamically -->
+                            </div>
+                        </div>
+
+                        <div class="infra-section">
+                            <h4><i class="fas fa-road"></i> Pothole Density Heatmap</h4>
+                            <div class="pothole-density" id="potholeDensity">
+                                <!-- Pothole density items will be generated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Performance Metrics Panel -->
+                <div class="panel-content" id="panel-performance">
+                    <div class="panel-header">
+                        <h3>Performance & Validation Metrics</h3>
+                        <p class="panel-subtitle">Model accuracy and confidence tracking</p>
+                    </div>
+
+                    <div class="performance-grid">
+                        <div class="metric-card">
+                            <div class="metric-icon"><i class="fas fa-bullseye"></i></div>
+                            <div class="metric-content">
+                                <h4>Prediction Accuracy</h4>
+                                <div class="metric-value" id="predictionAccuracy">87.5%</div>
+                                <p class="metric-trend positive"><i class="fas fa-arrow-up"></i> +3.2% from last week
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="metric-card">
+                            <div class="metric-icon"><i class="fas fa-check-double"></i></div>
+                            <div class="metric-content">
+                                <h4>Model Confidence</h4>
+                                <div class="metric-value confidence-high" id="modelConfidence">High</div>
+                                <p class="metric-detail">Based on 2,340 verified data points</p>
+                            </div>
+                        </div>
+
+                        <div class="metric-card">
+                            <div class="metric-icon"><i class="fas fa-clock"></i></div>
+                            <div class="metric-content">
+                                <h4>Response Time</h4>
+                                <div class="metric-value" id="responseTime">12 min</div>
+                                <p class="metric-detail">Avg. time from alert to action</p>
+                            </div>
+                        </div>
+
+                        <div class="metric-card">
+                            <div class="metric-icon"><i class="fas fa-shield-alt"></i></div>
+                            <div class="metric-content">
+                                <h4>Prevention Rate</h4>
+                                <div class="metric-value" id="preventionRate">73%</div>
+                                <p class="metric-trend positive"><i class="fas fa-arrow-up"></i> Incidents prevented</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="accuracy-chart">
+                        <h4>Predicted vs Actual Incidents (Last 7 Days)</h4>
+                        <canvas id="accuracyChart"></canvas>
+                    </div>
+                </div>
+
+            </section>
+
+        </main>
+
+    </div>
+
+    <!-- Ward Detail Modal -->
+    <div class="modal" id="wardModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalWardName">Ward Details</h3>
+                <button class="modal-close" id="closeModal"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Ward details will be populated dynamically -->
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Incident Upload Modal -->
+    <div class="modal" id="uploadModal">
+        <div class="modal-content upload-modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-camera"></i> Report Water-Logging Incident</h3>
+                <button class="modal-close" id="closeUploadModal"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body upload-modal-body">
+
+                <!-- Upload Form -->
+                <form id="incidentUploadForm">
+
+                    <!-- Photo Upload Section -->
+                    <div class="upload-section">
+                        <h4><i class="fas fa-image"></i> Upload Photo Evidence</h4>
+                        <div class="upload-dropzone" id="dropzone">
+                            <input type="file" id="incidentPhoto" accept="image/*" hidden>
+                            <div class="dropzone-content">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <p><strong>Drag & drop</strong> your photo here</p>
+                                <p class="dropzone-hint">or click to browse</p>
+                                <button type="button" class="browse-btn" id="browseBtn">
+                                    <i class="fas fa-folder-open"></i> Browse Files
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Image Preview -->
+                        <div class="image-preview" id="imagePreview" style="display: none;">
+                            <img id="previewImage" src="" alt="Preview">
+                            <button type="button" class="remove-image-btn" id="removeImageBtn">
+                                <i class="fas fa-times"></i> Remove
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Location Section -->
+                    <div class="upload-section">
+                        <h4><i class="fas fa-map-marker-alt"></i> Incident Location</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="incidentWard">Select Ward *</label>
+                                <select id="incidentWard" required>
+                                    <option value="">Choose a ward...</option>
+                                    <option value="central-1">Central Delhi - 1</option>
+                                    <option value="central-2">Central Delhi - 2</option>
+                                    <option value="north-1">North Delhi - 1</option>
+                                    <option value="north-2">North Delhi - 2</option>
+                                    <option value="south-1">South Delhi - 1</option>
+                                    <option value="south-2">South Delhi - 2</option>
+                                    <option value="east-1">East Delhi - 1</option>
+                                    <option value="east-2">East Delhi - 2</option>
+                                    <option value="west-1">West Delhi - 1</option>
+                                    <option value="west-2">West Delhi - 2</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>GPS Coordinates</label>
+                                <button type="button" class="gps-btn" id="captureGPS">
+                                    <i class="fas fa-location-arrow"></i> Use My Location
+                                </button>
+                                <div class="gps-display" id="gpsDisplay">
+                                    <small>Location not captured</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Incident Details -->
+                    <div class="upload-section">
+                        <h4><i class="fas fa-info-circle"></i> Incident Details</h4>
+                        <div class="form-group">
+                            <label for="incidentType">Incident Type *</label>
+                            <select id="incidentType" required>
+                                <option value="">Select type...</option>
+                                <option value="waterlogging">Water-logging</option>
+                                <option value="pothole">Pothole</option>
+                                <option value="drainage">Drainage Blockage</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="incidentDescription">Description</label>
+                            <textarea id="incidentDescription" rows="3"
+                                placeholder="Provide additional details about the incident..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Validation Status Panel -->
+                    <div class="upload-section validation-panel" id="validationPanel" style="display: none;">
+                        <h4><i class="fas fa-shield-alt"></i> Validation Checks</h4>
+                        <div class="validation-checks">
+                            <div class="validation-item" id="validTimestamp">
+                                <i class="fas fa-circle-notch fa-spin"></i>
+                                <span>Checking timestamp...</span>
+                            </div>
+                            <div class="validation-item" id="validAI">
+                                <i class="fas fa-circle-notch fa-spin"></i>
+                                <span>AI-generated detection...</span>
+                            </div>
+                            <div class="validation-item" id="validLocation">
+                                <i class="fas fa-circle-notch fa-spin"></i>
+                                <span>Verifying location data...</span>
+                            </div>
+                            <div class="validation-item" id="validQuality">
+                                <i class="fas fa-circle-notch fa-spin"></i>
+                                <span>Image quality check...</span>
+                            </div>
+                        </div>
+                        <div class="validation-score" id="validationScore">
+                            <div class="score-label">Confidence Score</div>
+                            <div class="score-value" id="scoreValue">--</div>
+                            <div class="score-bar">
+                                <div class="score-fill" id="scoreFill"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Submit Section -->
+                    <div class="upload-actions">
+                        <button type="button" class="btn-secondary" id="cancelUpload">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button type="submit" class="btn-primary" id="submitIncident" disabled>
+                            <i class="fas fa-paper-plane"></i> Submit Report
+                        </button>
+                    </div>
+
+                </form>
+
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
