@@ -3,6 +3,10 @@
 // Real-time Data Simulation & Interactivity
 // ===================================
 
+// === API CONFIGURATION ===
+const API_BASE_URL = 'http://localhost:5000/api';
+const SOCKET_URL = 'http://localhost:5000';
+
 // === GLOBAL STATE ===
 let currentFilters = {
     ward: 'all',
@@ -17,6 +21,15 @@ let activeLayers = {
     incidents: true,
     traffic: false
 };
+
+// Map instance
+let map = null;
+let wardLayer = null;
+let incidentLayer = null;
+let heatLayer = null;
+
+// WebSocket
+let socket = null;
 
 // === MOCK DATA GENERATION ===
 const wardNames = [
@@ -111,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateRealTimeData();
     }, 30000);
 
-    console.log('✅ Dashboard Ready!');
+    console.log('Dashboard Ready!');
 });
 
 // === CLOCK ===
@@ -213,38 +226,373 @@ function switchPanel(panelName) {
     document.getElementById(`panel-${panelName}`).classList.add('active');
 }
 
-// === MAP ===
+// === MAP INITIALIZATION ===
 function initializeMap() {
     const mapElement = document.getElementById('riskMap');
 
-    // Create SVG map with ward regions
-    setTimeout(() => {
-        mapElement.innerHTML = createInteractiveMap();
+    // Remove loading message
+    mapElement.innerHTML = '';
 
-        // Add click handlers to ward regions
-        document.querySelectorAll('.ward-region').forEach(region => {
-            region.addEventListener('click', (e) => {
-                const wardId = parseInt(e.currentTarget.getAttribute('data-ward-id'));
-                showWardDetails(wardId);
-            });
+    // Initialize Leaflet map centered on Delhi
+    map = L.map('riskMap', {
+        center: [28.6139, 77.2090], // Delhi coordinates
+        zoom: 11,
+        zoomControl: false,
+        minZoom: 10,
+        maxZoom: 16
+    });
 
-            region.addEventListener('mouseenter', (e) => {
-                const wardId = parseInt(e.currentTarget.getAttribute('data-ward-id'));
-                showWardTooltip(wardId, e);
-            });
+    // Add base tile layer (OpenStreetMap)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        opacity: 0.7
+    }).addTo(map);
 
-            region.addEventListener('mouseleave', hideWardTooltip);
+    // Add zoom control to top right
+    L.control.zoom({
+        position: 'topright'
+    }).addTo(map);
+
+    // Initialize layers
+    wardLayer = L.layerGroup().addTo(map);
+    incidentLayer = L.layerGroup().addTo(map);
+
+    // Load ward data and render
+    loadWardData();
+
+    // Set up real-time updates
+    initializeWebSocket();
+
+    // Map controls
+    document.getElementById('zoomIn')?.addEventListener('click', () => map.zoomIn());
+    document.getElementById('zoomOut')?.addEventListener('click', () => map.zoomOut());
+    document.getElementById('resetView')?.addEventListener('click', () => {
+        map.setView([28.6139, 77.2090], 11);
+    });
+}
+
+// === LOAD WARD DATA FROM API ===
+async function loadWardData() {
+    try {
+        console.log('🔄 Loading ward data from API...');
+        const response = await fetch(`${API_BASE_URL}/wards`);
+        const result = await response.json();
+        
+        console.log('📊 API Response:', result);
+        
+        if (result.success && result.data && result.data.length > 0) {
+            wardsData = result.data;
+            console.log(`✅ Loaded ${result.data.length} wards from API`);
+            updateMapWithWards(result.data);
+            updateStatistics(result.data);
+            updateAlertCounts(result.data);
+        } else {
+            console.warn('⚠️ No wards in database, using demo data');
+            useDemoData();
+        }
+    } catch (error) {
+        console.error('❌ Error loading ward data:', error);
+        console.log('📍 Using demo data instead');
+        useDemoData();
+    }
+}
+
+// === USE DEMO DATA IF API FAILS ===
+function useDemoData() {
+    // Create demo data with actual Delhi locations
+    wardsData = [
+        { id: 1, name: 'Connaught Place', zone: 'Central Delhi', mpi_score: 75, risk_level: 'safe', current_rainfall: 0, forecast_rainfall_3h: 25, failure_threshold: 60, drainage_stress_index: 35, pothole_density: 20, last_updated: new Date() },
+        { id: 2, name: 'Sadar Bazar', zone: 'North Delhi', mpi_score: 38, risk_level: 'critical', current_rainfall: 22, forecast_rainfall_3h: 68, failure_threshold: 45, drainage_stress_index: 78, pothole_density: 72, last_updated: new Date() },
+        { id: 3, name: 'Greater Kailash', zone: 'South Delhi', mpi_score: 82, risk_level: 'safe', current_rainfall: 0, forecast_rainfall_3h: 18, failure_threshold: 70, drainage_stress_index: 22, pothole_density: 12, last_updated: new Date() },
+        { id: 4, name: 'Laxmi Nagar', zone: 'East Delhi', mpi_score: 48, risk_level: 'alert', current_rainfall: 14, forecast_rainfall_3h: 52, failure_threshold: 52, drainage_stress_index: 66, pothole_density: 58, last_updated: new Date() },
+        { id: 5, name: 'Dwarka', zone: 'West Delhi', mpi_score: 75, risk_level: 'safe', current_rainfall: 2, forecast_rainfall_3h: 20, failure_threshold: 68, drainage_stress_index: 30, pothole_density: 18, last_updated: new Date() },
+        { id: 6, name: 'Sangam Vihar', zone: 'South Delhi', mpi_score: 35, risk_level: 'critical', current_rainfall: 25, forecast_rainfall_3h: 72, failure_threshold: 42, drainage_stress_index: 82, pothole_density: 78, last_updated: new Date() },
+        { id: 7, name: 'Rohini', zone: 'North Delhi', mpi_score: 62, risk_level: 'safe', current_rainfall: 5, forecast_rainfall_3h: 30, failure_threshold: 65, drainage_stress_index: 42, pothole_density: 28, last_updated: new Date() },
+        { id: 8, name: 'Shahdara', zone: 'East Delhi', mpi_score: 45, risk_level: 'alert', current_rainfall: 16, forecast_rainfall_3h: 58, failure_threshold: 50, drainage_stress_index: 70, pothole_density: 62, last_updated: new Date() },
+    ];
+    
+    console.log(`✅ Demo data loaded: ${wardsData.length} wards`);
+    updateMapWithWards(wardsData);
+    updateStatistics(wardsData);
+    updateAlertCounts(wardsData);
+}
+
+// === RENDER WARDS ON MAP ===
+function updateMapWithWards(wards) {
+    // Clear existing ward markers
+    wardLayer.clearLayers();
+    
+    const heatMapData = [];
+
+    wards.forEach(ward => {
+        // Generate approximate coordinates for Delhi wards
+        const coords = getWardCoordinates(ward.zone, ward.id);
+        
+        // Color based on risk level
+        let color = '#00C896'; // safe
+        if (ward.risk_level === 'alert') color = '#FFB800';
+        if (ward.risk_level === 'critical') color = '#FF4757';
+        
+        // Create circular marker for ward with better visibility
+        const circle = L.circle(coords, {
+            color: color,
+            fillColor: color,
+            fillOpacity: 0.5,
+            radius: 1200,
+            weight: 3
+        }).addTo(wardLayer);
+        
+        // Add ward name label
+        const label = L.marker(coords, {
+            icon: L.divIcon({
+                className: 'ward-label',
+                html: `<div style="
+                    background: white;
+                    padding: 4px 8px;
+                    border-radius: 6px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: #0A2647;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                    white-space: nowrap;
+                    border: 2px solid ${color};
+                ">${ward.name}</div>`,
+                iconSize: null
+            })
+        }).addTo(wardLayer);
+        
+        // Click handler to show detailed card
+        circle.on('click', () => {
+            showWardInfoCard(ward, color);
         });
+        
+        label.on('click', () => {
+            showWardInfoCard(ward, color);
+        });
+        
+        // Add to heat map data
+        const intensity = ward.risk_level === 'critical' ? 1.0 : 
+                         ward.risk_level === 'alert' ? 0.6 : 0.3;
+        heatMapData.push([coords[0], coords[1], intensity]);
+    });
+    
+    // Add heat map layer
+    if (heatLayer) {
+        map.removeLayer(heatLayer);
+    }
+    
+    heatLayer = L.heatLayer(heatMapData, {
+        radius: 45,
+        blur: 40,
+        maxZoom: 13,
+        max: 1.0,
+        gradient: {
+            0.0: '#00C896',
+            0.5: '#FFB800',
+            1.0: '#FF4757'
+        }
+    }).addTo(map);
+}
 
-        // Map controls
-        document.getElementById('zoomIn')?.addEventListener('click', () => console.log('Zoom in'));
-        document.getElementById('zoomOut')?.addEventListener('click', () => console.log('Zoom out'));
-        document.getElementById('resetView')?.addEventListener('click', () => console.log('Reset view'));
-    }, 500);
+// === GENERATE WARD COORDINATES ===
+function getWardCoordinates(zone, id) {
+    // Approximate coordinates for Delhi zones
+    const baseCoords = {
+        'Central Delhi': [28.6562, 77.2410],
+        'North Delhi': [28.7041, 77.1025],
+        'South Delhi': [28.5355, 77.2503],
+        'East Delhi': [28.6562, 77.2867],
+        'West Delhi': [28.6619, 77.1025],
+        'New Delhi': [28.6139, 77.2090]
+    };
+    
+    const base = baseCoords[zone] || [28.6139, 77.2090];
+    
+    // Add some randomness for spread
+    const offsetLat = (Math.random() - 0.5) * 0.08;
+    const offsetLng = (Math.random() - 0.5) * 0.08;
+    
+    return [base[0] + offsetLat, base[1] + offsetLng];
+}
+
+// === SHOW WARD INFO CARD ===
+function showWardInfoCard(ward, color) {
+    const card = document.getElementById('wardInfoCard');
+    const content = document.getElementById('wardCardContent');
+    
+    // Calculate risk percentage
+    const riskPercent = Math.round((ward.forecast_rainfall_3h || 0) / (ward.failure_threshold || 60) * 100);
+    
+    content.innerHTML = `
+        <div style="border-left: 4px solid ${color}; padding-left: 16px;">
+            <h3 style="margin: 0 0 12px 0; color: ${color}; font-size: 1.4rem;">
+                <i class="fas fa-map-marker-alt"></i> ${ward.name}
+            </h3>
+            <p style="color: #546E7A; margin: 0 0 16px 0; font-size: 0.9rem;">
+                <i class="fas fa-layer-group"></i> ${ward.zone}
+            </p>
+        </div>
+        
+        <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 16px; border-radius: 12px; margin: 16px 0;">
+            <div style="text-align: center;">
+                <div style="font-size: 3rem; font-weight: 800; color: ${color}; margin-bottom: 8px;">
+                    ${ward.mpi_score}
+                </div>
+                <div style="color: #0A2647; font-weight: 600; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">
+                    MPI Score
+                </div>
+                <div style="margin-top: 8px; padding: 6px 12px; background: ${color}; color: white; border-radius: 20px; display: inline-block; font-size: 0.85rem; font-weight: 600;">
+                    ${ward.risk_level.toUpperCase()}
+                </div>
+            </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0;">
+            <div style="background: white; padding: 12px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="color: #546E7A; font-size: 0.75rem; margin-bottom: 4px;">
+                    <i class="fas fa-cloud-rain"></i> Current Rainfall
+                </div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #2C74B3;">
+                    ${ward.current_rainfall}<span style="font-size: 0.8rem; color: #546E7A;">mm</span>
+                </div>
+            </div>
+            
+            <div style="background: white; padding: 12px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="color: #546E7A; font-size: 0.75rem; margin-bottom: 4px;">
+                    <i class="fas fa-cloud-showers-heavy"></i> Forecast (3h)
+                </div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #FFB800;">
+                    ${ward.forecast_rainfall_3h || 0}<span style="font-size: 0.8rem; color: #546E7A;">mm</span>
+                </div>
+            </div>
+            
+            <div style="background: white; padding: 12px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="color: #546E7A; font-size: 0.75rem; margin-bottom: 4px;">
+                    <i class="fas fa-water"></i> Drainage Stress
+                </div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #FF4757;">
+                    ${ward.drainage_stress_index}<span style="font-size: 0.8rem; color: #546E7A;">%</span>
+                </div>
+            </div>
+            
+            <div style="background: white; padding: 12px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="color: #546E7A; font-size: 0.75rem; margin-bottom: 4px;">
+                    <i class="fas fa-road"></i> Pothole Density
+                </div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: #546E7A;">
+                    ${ward.pothole_density || 0}<span style="font-size: 0.8rem; color: #546E7A;">%</span>
+                </div>
+            </div>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin-top: 16px;">
+            <div style="color: #546E7A; font-size: 0.85rem; margin-bottom: 8px;">
+                <i class="fas fa-exclamation-triangle"></i> <strong>Failure Threshold:</strong> ${ward.failure_threshold || 60}mm
+            </div>
+            <div style="color: #546E7A; font-size: 0.85rem;">
+                <i class="fas fa-chart-line"></i> <strong>Risk Level:</strong> ${riskPercent}% of threshold
+            </div>
+        </div>
+        
+        <div style="margin-top: 16px; font-size: 0.75rem; color: #9BA5AD;">
+            <i class="fas fa-clock"></i> Last updated: ${new Date(ward.last_updated || Date.now()).toLocaleString()}
+        </div>
+    `;
+    
+    card.style.display = 'block';
+    setTimeout(() => card.classList.add('show'), 10);
+}
+
+function closeWardCard() {
+    const card = document.getElementById('wardInfoCard');
+    card.classList.remove('show');
+    setTimeout(() => card.style.display = 'none', 300);
+}
+
+// === WEBSOCKET FOR REAL-TIME UPDATES ===
+function initializeWebSocket() {
+    socket = io(SOCKET_URL);
+    
+    socket.on('connect', () => {
+        console.log('✅ Connected to real-time updates');
+    });
+    
+    socket.on('ward-update', (data) => {
+        console.log('🔄 Ward update received:', data);
+        // Reload ward data
+        loadWardData();
+    });
+    
+    socket.on('incident-new', (data) => {
+        console.log('🚨 New incident:', data);
+        // Reload incidents
+        loadIncidents();
+    });
+    
+    socket.on('alert-new', (data) => {
+        console.log('⚠️ New alert:', data);
+        showNotification('New Alert', data.message);
+    });
+    
+    socket.on('disconnect', () => {
+        console.log('❌ Disconnected from real-time updates');
+    });
+}
+
+// === AUTO-REFRESH FOR REAL-TIME DATA ===
+function startRealTimeUpdates() {
+    // Refresh ward data every 30 seconds
+    setInterval(() => {
+        console.log('🔄 Auto-refreshing ward data...');
+        loadWardData();
+    }, 30000); // 30 seconds
+    
+    // Refresh incidents every 15 seconds
+    setInterval(() => {
+        console.log('🔄 Auto-refreshing incidents...');
+        loadIncidents();
+    }, 15000); // 15 seconds
+}
+
+// Start real-time updates when page loads
+setTimeout(() => {
+    startRealTimeUpdates();
+    console.log('✅ Real-time auto-refresh enabled');
+}, 5000); // Start after 5 seconds
+
+// === UPDATE STATISTICS ===
+function updateStatistics(wards) {
+    const stats = {
+        total: wards.length,
+        critical: wards.filter(w => w.risk_level === 'critical').length,
+        alert: wards.filter(w => w.risk_level === 'alert').length,
+        safe: wards.filter(w => w.risk_level === 'safe').length
+    };
+    
+    // Update sidebar MPI cards
+    updateMPIGrid(wards);
+}
+
+// === UPDATE ALERT COUNTS ===
+function updateAlertCounts(wards) {
+    const criticalCount = wards.filter(w => w.risk_level === 'critical').length;
+    const warningCount = wards.filter(w => w.risk_level === 'alert').length;
+    const safeCount = wards.filter(w => w.risk_level === 'safe').length;
+    
+    document.getElementById('criticalCount').textContent = criticalCount;
+    document.getElementById('warningCount').textContent = warningCount;
+    document.getElementById('safeCount').textContent = safeCount;
+}
+
+// === NOTIFICATION ===
+function showNotification(title, message) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body: message });
+    }
 }
 
 function createInteractiveMap() {
-    // Create a simplified SVG map with ward regions
+    // Legacy SVG map - replaced by Leaflet
     let svg = `
         <svg viewBox="0 0 800 600" style="width: 100%; height: 100%;">
             <defs>

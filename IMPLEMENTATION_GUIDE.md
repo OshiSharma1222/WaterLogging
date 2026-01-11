@@ -445,7 +445,7 @@ const supabase = require('./config/supabase');
 
 // Sync weather data every 15 minutes
 cron.schedule('*/15 * * * *', async () => {
-    console.log('🌦️ Syncing weather data...');
+    console.log('Syncing weather data...');
     
     try {
         // Get all weather stations
