@@ -3,6 +3,14 @@ const supabase = require('../config/supabase');
 // Get all incidents
 exports.getAllIncidents = async (req, res) => {
     try {
+        if (!supabase) {
+            return res.json({
+                success: true,
+                count: 0,
+                data: []
+            });
+        }
+
         const { status, ward_id, limit = 50 } = req.query;
 
         let query = supabase
@@ -27,7 +35,13 @@ exports.getAllIncidents = async (req, res) => {
 
         const { data, error } = await query;
 
-        if (error) throw error;
+        if (error) {
+            return res.json({
+                success: true,
+                count: 0,
+                data: []
+            });
+        }
 
         res.json({
             success: true,
@@ -35,9 +49,11 @@ exports.getAllIncidents = async (req, res) => {
             data: data
         });
     } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
+        console.log('Incident controller error:', error.message);
+        res.json({
+            success: true,
+            count: 0,
+            data: []
         });
     }
 };

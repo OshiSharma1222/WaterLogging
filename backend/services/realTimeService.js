@@ -9,28 +9,45 @@ class RealTimeService {
 
     // Start simulating real-time updates
     start() {
-        console.log('🌧️ Real-time service started');
+        console.log('Real-time service started');
+        
+        // Run initial update immediately
+        this.updateWardRainfall();
         
         // Update ward data every 30 seconds
         this.updateInterval = setInterval(() => {
             this.updateWardRainfall();
         }, 30000);
+        
+        // Create random incidents every 2 minutes
+        this.incidentInterval = setInterval(() => {
+            this.createRandomIncident();
+        }, 120000);
     }
 
     // Simulate rainfall updates
     async updateWardRainfall() {
         try {
+            console.log('Updating ward rainfall data...');
+            
             // Get all wards
             const { data: wards, error } = await supabase
                 .from('wards')
                 .select('*');
 
             if (error) throw error;
+            
+            if (!wards || wards.length === 0) {
+                console.warn('No wards found in database');
+                return;
+            }
 
+            let updatedCount = 0;
+            
             // Update each ward with simulated rainfall
             for (const ward of wards) {
                 const rainfallChange = (Math.random() - 0.5) * 5; // -2.5 to +2.5mm
-                const newRainfall = Math.max(0, ward.current_rainfall + rainfallChange);
+                const newRainfall = Math.max(0, (ward.current_rainfall || 0) + rainfallChange);
                 
                 // Calculate new risk level
                 const riskPercent = newRainfall / ward.failure_threshold;
@@ -55,20 +72,44 @@ class RealTimeService {
                     .eq('id', ward.id);
 
                 if (!updateError) {
+                    updatedCount++;
                     // Emit update via WebSocket
                     this.io.emit('ward-update', {
                         wardId: ward.id,
                         wardName: ward.name,
                         rainfall: Math.round(newRainfall * 10) / 10,
                         riskLevel: newRiskLevel,
-                        mpiScore: Math.round(newMpiScore)
+                        mpiScore: Math.round(newMpiScore),
+                        timestamp: new Date().toISOString()
                     });
+                } else {
+                    console.error(`Failed to update ward ${ward.name}:`, updateError.message);
                 }
             }
 
-            console.log('✅ Ward data updated with simulated rainfall');
+            console.log(`Ward data updated: ${updatedCount}/${wards.length} wards`);
+            this.io.emit('data-refresh', { 
+                type: 'wards', 
+                count: updatedCount,
+                timestamp: new Date().toISOString()
+            });
         } catch (error) {
-            console.error('❌ Error updating ward rainfall:', error);
+            console.error('Error updating ward rainfall:', error.message);
+            this.io.emit('error', { 
+                type: 'update_failed', 
+                message: error.message 
+            });
+        }
+    }
+    
+    // Stop the service
+    stop() {
+        if (this.updateInterval) {
+            clearInterval(this.updateInterval);
+            console.log('Real-time service stopped');
+        }
+        if (this.incidentInterval) {
+            clearInterval(this.incidentInterval);
         }
     }
 
@@ -109,11 +150,11 @@ class RealTimeService {
 
                 if (!error) {
                     this.io.emit('incident-new', incident);
-                    console.log('🚨 New incident created:', incident.type, 'at', ward.name);
+                    console.log('New incident created:', incident.type, 'at', ward.name);
                 }
             }
         } catch (error) {
-            console.error('❌ Error creating incident:', error);
+            console.error('Error creating incident:', error);
         }
     }
 
@@ -121,7 +162,7 @@ class RealTimeService {
     stop() {
         if (this.updateInterval) {
             clearInterval(this.updateInterval);
-            console.log('❌ Real-time service stopped');
+            console.log('Real-time service stopped');
         }
     }
 }

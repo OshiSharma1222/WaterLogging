@@ -11,7 +11,7 @@
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap"
         rel="stylesheet">
 
     <!-- Font Awesome for Icons -->
@@ -37,7 +37,7 @@
         <div class="top-bar-left">
             <div class="logo">
                 <i class="fas fa-cloud-rain"></i>
-                <span>Delhi Monsoon Command</span>
+                <span>Aarunya दृष्टि</span>
             </div>
             <div class="city-selector">
                 <i class="fas fa-map-marker-alt"></i>
@@ -53,26 +53,23 @@
                 <i class="fas fa-clock"></i>
                 <span id="currentTime">Loading...</span>
             </div>
+            <div class="live-weather" id="liveWeather">
+                <i class="fas fa-cloud-sun"></i>
+                <span id="currentTemp">--°C</span>
+                <span class="weather-divider">|</span>
+                <i class="fas fa-tint"></i>
+                <span id="currentHumidity">--%</span>
+            </div>
+            <div class="mpi-status" id="mpiStatus">
+                <div class="mpi-status-indicator">
+                    <span class="status-dot connecting" id="statusDot"></span>
+                    <span id="mpiStatusText">Connecting to MPI Model...</span>
+                </div>
+                <div class="mpi-last-update" id="lastUpdateTime">--</div>
+            </div>
         </div>
 
         <div class="top-bar-right">
-            <div class="alert-summary">
-                <div class="alert-item critical">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <span id="criticalCount">0</span>
-                    <small>Critical</small>
-                </div>
-                <div class="alert-item warning">
-                    <i class="fas fa-exclamation-circle"></i>
-                    <span id="warningCount">0</span>
-                    <small>Alert</small>
-                </div>
-                <div class="alert-item safe">
-                    <i class="fas fa-check-circle"></i>
-                    <span id="safeCount">0</span>
-                    <small>Safe</small>
-                </div>
-            </div>
             <button class="report-btn" id="reportIncidentBtn">
                 <i class="fas fa-camera"></i>
                 Report Incident
@@ -226,23 +223,21 @@
             <!-- Bottom Info Panels - Tabbed Interface -->
             <section class="info-panels">
                 <div class="panel-tabs">
-                    <button class="tab-btn active" data-panel="mpi"><i class="fas fa-chart-line"></i> MPI
-                        Dashboard</button>
+                    <button class="tab-btn active" data-panel="mpi"><i class="fas fa-chart-line"></i> Risk Dashboard</button>
                     <button class="tab-btn" data-panel="alerts"><i class="fas fa-bell"></i> Rainfall Alerts</button>
                     <button class="tab-btn" data-panel="incidents"><i class="fas fa-camera"></i> Live Incidents</button>
-                    <button class="tab-btn" data-panel="actions"><i class="fas fa-tasks"></i> Action Center</button>
-                    <button class="tab-btn" data-panel="infrastructure"><i class="fas fa-wrench"></i>
-                        Infrastructure</button>
-                    <button class="tab-btn" data-panel="performance"><i class="fas fa-chart-bar"></i>
-                        Performance</button>
+                    <button class="tab-btn" data-panel="infrastructure"><i class="fas fa-wrench"></i> Infrastructure</button>
                 </div>
 
                 <!-- MPI Dashboard Panel -->
                 <div class="panel-content active" id="panel-mpi">
                     <div class="panel-header">
-                        <h3>Monsoon Preparedness Index (MPI)</h3>
+                        <h3>Risk</h3>
                         <p class="panel-subtitle">Ward-wise readiness assessment (0-100 scale)</p>
                     </div>
+
+                    <!-- Search Container -->
+                    <div id="mpiSearchContainer"></div>
 
                     <div class="mpi-grid" id="mpiGrid">
                         <!-- MPI cards will be generated dynamically -->
@@ -273,36 +268,7 @@
                     </div>
                 </div>
 
-                <!-- Action Center Panel -->
-                <div class="panel-content" id="panel-actions">
-                    <div class="panel-header">
-                        <h3>Action-Oriented Decision Support</h3>
-                        <p class="panel-subtitle">Prioritized response recommendations</p>
-                    </div>
 
-                    <div class="action-grid">
-                        <div class="action-section">
-                            <h4><i class="fas fa-tools"></i> Drain Clearing Priority</h4>
-                            <div class="priority-list" id="drainPriority">
-                                <!-- Priority items will be generated dynamically -->
-                            </div>
-                        </div>
-
-                        <div class="action-section">
-                            <h4><i class="fas fa-truck"></i> Rapid Response Deployment</h4>
-                            <div class="deployment-list" id="deploymentList">
-                                <!-- Deployment items will be generated dynamically -->
-                            </div>
-                        </div>
-
-                        <div class="action-section">
-                            <h4><i class="fas fa-route"></i> Traffic Diversion Suggestions</h4>
-                            <div class="traffic-list" id="trafficList">
-                                <!-- Traffic items will be generated dynamically -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- Infrastructure Panel -->
                 <div class="panel-content" id="panel-infrastructure">
@@ -328,57 +294,7 @@
                     </div>
                 </div>
 
-                <!-- Performance Metrics Panel -->
-                <div class="panel-content" id="panel-performance">
-                    <div class="panel-header">
-                        <h3>Performance & Validation Metrics</h3>
-                        <p class="panel-subtitle">Model accuracy and confidence tracking</p>
-                    </div>
 
-                    <div class="performance-grid">
-                        <div class="metric-card">
-                            <div class="metric-icon"><i class="fas fa-bullseye"></i></div>
-                            <div class="metric-content">
-                                <h4>Prediction Accuracy</h4>
-                                <div class="metric-value" id="predictionAccuracy">87.5%</div>
-                                <p class="metric-trend positive"><i class="fas fa-arrow-up"></i> +3.2% from last week
-                                </p>
-                            </div>
-                        </div>
-
-                        <div class="metric-card">
-                            <div class="metric-icon"><i class="fas fa-check-double"></i></div>
-                            <div class="metric-content">
-                                <h4>Model Confidence</h4>
-                                <div class="metric-value confidence-high" id="modelConfidence">High</div>
-                                <p class="metric-detail">Based on 2,340 verified data points</p>
-                            </div>
-                        </div>
-
-                        <div class="metric-card">
-                            <div class="metric-icon"><i class="fas fa-clock"></i></div>
-                            <div class="metric-content">
-                                <h4>Response Time</h4>
-                                <div class="metric-value" id="responseTime">12 min</div>
-                                <p class="metric-detail">Avg. time from alert to action</p>
-                            </div>
-                        </div>
-
-                        <div class="metric-card">
-                            <div class="metric-icon"><i class="fas fa-shield-alt"></i></div>
-                            <div class="metric-content">
-                                <h4>Prevention Rate</h4>
-                                <div class="metric-value" id="preventionRate">73%</div>
-                                <p class="metric-trend positive"><i class="fas fa-arrow-up"></i> Incidents prevented</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="accuracy-chart">
-                        <h4>Predicted vs Actual Incidents (Last 7 Days)</h4>
-                        <canvas id="accuracyChart"></canvas>
-                    </div>
-                </div>
 
             </section>
 
@@ -414,15 +330,39 @@
 
                     <!-- Photo Upload Section -->
                     <div class="upload-section">
-                        <h4><i class="fas fa-image"></i> Upload Photo Evidence</h4>
-                        <div class="upload-dropzone" id="dropzone">
-                            <input type="file" id="incidentPhoto" accept="image/*" hidden>
-                            <div class="dropzone-content">
-                                <i class="fas fa-cloud-upload-alt"></i>
-                                <p><strong>Drag & drop</strong> your photo here</p>
-                                <p class="dropzone-hint">or click to browse</p>
-                                <button type="button" class="browse-btn" id="browseBtn">
-                                    <i class="fas fa-folder-open"></i> Browse Files
+                        <h4><i class="fas fa-image"></i> Capture Photo Evidence</h4>
+                        
+                        <!-- Camera View (hidden by default) -->
+                        <div id="cameraContainer" style="display: none;">
+                            <div class="camera-feed-wrapper">
+                                <video id="cameraFeed" autoplay playsinline></video>
+                                <div class="camera-overlay-controls">
+                                    <button type="button" class="camera-control-btn switch" id="switchCameraBtn" title="Switch Camera">
+                                        <i class="fas fa-sync-alt"></i>
+                                    </button>
+                                    <button type="button" class="camera-control-btn capture" id="capturePhotoBtn" title="Take Photo">
+                                        <i class="fas fa-camera"></i>
+                                    </button>
+                                    <button type="button" class="camera-control-btn close" id="closeCameraBtn" title="Cancel">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Open Camera Button -->
+                        <div class="camera-start-section" id="dropzone">
+                            <input type="file" id="incidentPhoto" accept="image/*" capture="environment" hidden>
+                            <div class="camera-start-content">
+                                <div class="camera-icon-wrapper">
+                                    <i class="fas fa-camera"></i>
+                                    <div class="camera-pulse"></div>
+                                </div>
+                                <h3>Capture Evidence</h3>
+                                <p>Take a live photo of the waterlogging</p>
+                                <button type="button" class="open-camera-btn" id="openCameraBtn">
+                                    <i class="fas fa-video"></i>
+                                    <span>Open Camera</span>
                                 </button>
                             </div>
                         </div>
@@ -430,9 +370,14 @@
                         <!-- Image Preview -->
                         <div class="image-preview" id="imagePreview" style="display: none;">
                             <img id="previewImage" src="" alt="Preview">
-                            <button type="button" class="remove-image-btn" id="removeImageBtn">
-                                <i class="fas fa-times"></i> Remove
-                            </button>
+                            <div class="preview-actions">
+                                <button type="button" class="preview-btn retake" id="retakePhotoBtn">
+                                    <i class="fas fa-redo"></i> Retake Photo
+                                </button>
+                                <button type="button" class="preview-btn remove" id="removeImageBtn">
+                                    <i class="fas fa-trash-alt"></i> Remove
+                                </button>
+                            </div>
                         </div>
                     </div>
 

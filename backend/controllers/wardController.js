@@ -3,6 +3,14 @@ const supabase = require('../config/supabase');
 // Get all wards (with optional filters)
 exports.getAllWards = async (req, res) => {
     try {
+        if (!supabase) {
+            return res.json({
+                success: true,
+                count: 0,
+                data: []
+            });
+        }
+
         const { zone, risk_level, min_mpi, max_mpi } = req.query;
         
         let query = supabase.from('wards').select('*');
@@ -17,7 +25,13 @@ exports.getAllWards = async (req, res) => {
 
         const { data, error } = await query;
 
-        if (error) throw error;
+        if (error) {
+            return res.json({
+                success: true,
+                count: 0,
+                data: []
+            });
+        }
 
         res.json({
             success: true,
@@ -25,9 +39,11 @@ exports.getAllWards = async (req, res) => {
             data: data
         });
     } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
+        console.log('Ward controller error:', error.message);
+        res.json({
+            success: true,
+            count: 0,
+            data: []
         });
     }
 };
@@ -35,6 +51,13 @@ exports.getAllWards = async (req, res) => {
 // Get ward by ID
 exports.getWardById = async (req, res) => {
     try {
+        if (!supabase) {
+            return res.status(404).json({
+                success: false,
+                error: 'Ward not found'
+            });
+        }
+
         const { id } = req.params;
 
         const { data, error } = await supabase
@@ -43,9 +66,7 @@ exports.getWardById = async (req, res) => {
             .eq('id', id)
             .single();
 
-        if (error) throw error;
-
-        if (!data) {
+        if (error || !data) {
             return res.status(404).json({
                 success: false,
                 error: 'Ward not found'
@@ -172,6 +193,86 @@ exports.getWardsByZone = async (req, res) => {
             zone: zone,
             count: data.length,
             data: data
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+// Create new ward (dynamic - no hardcoded data)
+exports.createWard = async (req, res) => {
+    try {
+        const { name, zone, failure_threshold } = req.body;
+
+        // Validate required fields
+        if (!name || !zone) {
+            return res.status(400).json({
+                success: false,
+                error: 'Ward name and zone are required'
+            });
+        }
+
+        // Check if ward already exists
+        const { data: existing } = await supabase
+            .from('wards')
+            .select('id')
+            .eq('name', name)
+            .single();
+
+        if (existing) {
+            return res.status(400).json({
+                success: false,
+                error: 'Ward with this name already exists'
+            });
+        }
+
+        // Create ward with minimal data
+        // Weather service will populate rainfall, risk_level, mpi_score automatically
+        const { data, error } = await supabase
+            .from('wards')
+            .insert({
+                name,
+                zone,
+                failure_threshold: failure_threshold || 60,
+                // All other fields will use database defaults
+                // Weather service will update them on next cycle
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        res.status(201).json({
+            success: true,
+            message: 'Ward created! Weather data will be populated within 15 minutes.',
+            data: data
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+// Delete ward
+exports.deleteWard = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const { error } = await supabase
+            .from('wards')
+            .delete()
+            .eq('id', id);
+
+        if (error) throw error;
+
+        res.json({
+            success: true,
+            message: 'Ward deleted successfully'
         });
     } catch (error) {
         res.status(500).json({

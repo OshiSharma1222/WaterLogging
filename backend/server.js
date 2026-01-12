@@ -17,20 +17,28 @@ const errorHandler = require('./middleware/errorHandler');
 const rateLimiter = require('./middleware/rateLimiter');
 
 // Import services
-const RealTimeService = require('./services/realTimeService');
+const WeatherService = require('./services/imdWeatherService');
 
 // Initialize Express app
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: {
-        origin: process.env.FRONTEND_URL || '*',
-        methods: ['GET', 'POST']
-    }
+        origin: '*',
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        credentials: true,
+        allowedHeaders: ['Content-Type', 'Authorization']
+    },
+    transports: ['websocket', 'polling']
 });
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: '*',
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(rateLimiter);
@@ -70,27 +78,59 @@ app.use(errorHandler);
 
 // WebSocket connection
 io.on('connection', (socket) => {
-    console.log('✅ Client connected:', socket.id);
+    console.log('Client connected:', socket.id);
     
     socket.on('disconnect', () => {
-        console.log('❌ Client disconnected:', socket.id);
+        console.log('Client disconnected:', socket.id);
     });
 });
 
-// Initialize real-time data service
-const realTimeService = new RealTimeService(io);
-realTimeService.start();
+// Initialize weather service (OpenWeather primary)
+const weatherService = new WeatherService(io);
+weatherService.start();
 
-console.log('🌧️ Real-time data simulation enabled');
+// Log service status
+weatherService.getStatus().then(status => {
+    console.log('Weather Service Status:', status);
+});
+
+console.log('Real-time data simulation enabled');
 
 // Start server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
+const serverInstance = server.listen(PORT, () => {
     console.log('=================================');
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📡 WebSocket enabled`);
-    console.log(`🌐 API: http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
+    console.log('WebSocket enabled');
+    console.log(`API: http://localhost:${PORT}`);
     console.log('=================================');
+});
+
+// Handle server errors
+serverInstance.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is already in use`);
+        process.exit(1);
+    } else {
+        console.error('Server error:', error);
+    }
+});
+
+// Prevent process from exiting
+process.on('SIGINT', () => {
+    console.log('\nShutting down server...');
+    serverInstance.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
+});
+
+process.on('SIGTERM', () => {
+    console.log('\nShutting down server...');
+    serverInstance.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
 });
 
 module.exports = { app, io };

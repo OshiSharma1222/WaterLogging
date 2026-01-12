@@ -84,14 +84,9 @@ INSERT INTO rainfall_readings (ward_id, rainfall_mm, temperature_celsius, humidi
 (10, 7.2, 29.8, 70, NOW() - INTERVAL '8 hours'),
 (16, 10.5, 30.5, 75, NOW() - INTERVAL '9 hours');
 
--- ===================================
--- VERIFICATION QUERIES
--- ===================================
 
--- Check ward count
 SELECT COUNT(*) as total_wards FROM wards;
 
--- Check wards by risk level
 SELECT risk_level, COUNT(*) as count 
 FROM wards 
 GROUP BY risk_level 
@@ -101,21 +96,17 @@ ORDER BY CASE risk_level
     WHEN 'safe' THEN 3 
 END;
 
--- Check incidents
 SELECT type, status, COUNT(*) as count 
 FROM incidents 
 GROUP BY type, status;
 
--- Check active alerts
 SELECT priority, COUNT(*) as count 
 FROM alerts 
 WHERE is_active = true 
 GROUP BY priority;
 
--- ===================================
--- SUCCESS MESSAGE
--- ===================================
-SELECT '✅ Seed data inserted successfully!' as message,
+
+SELECT ' Seed data inserted successfully!' as message,
        (SELECT COUNT(*) FROM wards) as total_wards,
        (SELECT COUNT(*) FROM incidents) as total_incidents,
        (SELECT COUNT(*) FROM alerts) as total_alerts,

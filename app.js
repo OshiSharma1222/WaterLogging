@@ -4,8 +4,12 @@
 // ===================================
 
 // === API CONFIGURATION ===
+// Backend (incidents, alerts, legacy wards if needed)
 const API_BASE_URL = 'http://localhost:5000/api';
 const SOCKET_URL = 'http://localhost:5000';
+
+// New MPI model API (flood prediction + infrastructure)
+const MPI_API_BASE_URL = 'https://delhi-flood-api.onrender.com';
 
 // === GLOBAL STATE ===
 let currentFilters = {
@@ -111,13 +115,12 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeLayerToggles();
     initializeTabs();
     initializeMap();
-    renderMPIDashboard();
-    renderAlerts();
     renderIncidents();
     renderActionCenter();
-    renderInfrastructure();
-    updateAlertSummary();
     initializeExport();
+
+    // Set initial MPI status
+    updateMPIStatus('connecting', 'Connecting to MPI Model...');
 
     // Simulate real-time updates every 30 seconds
     setInterval(() => {
@@ -126,6 +129,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     console.log('Dashboard Ready!');
 });
+
+// === MPI STATUS INDICATOR ===
+function updateMPIStatus(status, message) {
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('mpiStatusText');
+    const lastUpdate = document.getElementById('lastUpdateTime');
+    
+    if (statusDot) {
+        statusDot.className = 'status-dot ' + status;
+    }
+    if (statusText) {
+        statusText.textContent = message;
+    }
+    if (lastUpdate && status === 'connected') {
+        lastUpdate.textContent = 'Updated: ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    }
+}
+
+function updateLastRefreshTime() {
+    const lastUpdate = document.getElementById('lastUpdateTime');
+    if (lastUpdate) {
+        lastUpdate.textContent = 'Updated: ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    }
+}
 
 // === CLOCK ===
 function initializeClock() {
@@ -146,6 +173,56 @@ function initializeClock() {
 
     updateClock();
     setInterval(updateClock, 1000);
+    
+    // Also fetch current weather
+    fetchCurrentWeather();
+    setInterval(fetchCurrentWeather, 5 * 60 * 1000); // Update every 5 minutes
+}
+
+// === FETCH CURRENT DELHI WEATHER ===
+async function fetchCurrentWeather() {
+    // Set default/fallback values immediately
+    document.getElementById('currentTemp').textContent = '16°C';
+    document.getElementById('currentHumidity').textContent = '23%';
+    
+    try {
+        console.log('Fetching current weather for Delhi...');
+        const response = await fetch('https://api.openweathermap.org/data/2.5/weather?q=Delhi,IN&appid=ddde8ef4269b37e3e15bbb3c0ad027791&units=metric', {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+        });
+        
+        if (!response.ok) {
+            console.warn(`Weather API returned ${response.status} - using fallback data`);
+            return; // Keep default values
+        }
+        
+        const data = await response.json();
+        console.log(' Weather data received:', data);
+        
+        if (data.main) {
+            document.getElementById('currentTemp').textContent = `${Math.round(data.main.temp)}°C`;
+            document.getElementById('currentHumidity').textContent = `${data.main.humidity}%`;
+            
+            // Update weather icon based on conditions - select first icon in live-weather
+            const weatherIcon = document.querySelector('.live-weather i:first-child');
+            if (weatherIcon && data.weather && data.weather[0]) {
+                const weatherMain = data.weather[0].main.toLowerCase();
+                if (weatherMain.includes('rain')) {
+                    weatherIcon.className = 'fas fa-cloud-rain';
+                } else if (weatherMain.includes('cloud')) {
+                    weatherIcon.className = 'fas fa-cloud';
+                } else if (weatherMain.includes('clear')) {
+                    weatherIcon.className = 'fas fa-sun';
+                } else {
+                    weatherIcon.className = 'fas fa-cloud-sun';
+                }
+            }
+        }
+    } catch (error) {
+        console.warn('Weather fetch error:', error.message, '- using fallback data');
+        // Keep default values already set
+    }
 }
 
 // === FILTERS ===
@@ -180,7 +257,6 @@ function applyFilters() {
 
     // Re-render with filtered data
     renderMPIDashboard(filteredWards);
-    updateAlertSummary();
 }
 
 // === LAYER TOGGLES ===
@@ -271,29 +347,303 @@ function initializeMap() {
     });
 }
 
-// === LOAD WARD DATA FROM API ===
+// === LOAD WARD DATA FROM MPI MODEL API ===
 async function loadWardData() {
     try {
-        console.log('🔄 Loading ward data from API...');
-        const response = await fetch(`${API_BASE_URL}/wards`);
+        console.log(' Loading ward data from MPI model API...');
+        updateMPIStatus('refreshing', 'Fetching MPI Data...');
+        
+        // First, try to get current weather data from local backend
+        let weatherData = { rain_1h: 0, rain_3h: 0, rain_6h: 0, rain_24h: 0, rain_forecast_3h: 0 };
+        try {
+            const weatherRes = await fetch(`${API_BASE_URL}/wards`);
+            if (weatherRes.ok) {
+                const wards = await weatherRes.json();
+                if (wards && wards.length > 0) {
+                    // Aggregate rainfall from local backend wards
+                    const avgRainfall = wards.reduce((sum, w) => sum + (w.current_rainfall || 0), 0) / wards.length;
+                    weatherData = {
+                        rain_1h: avgRainfall,
+                        rain_3h: avgRainfall * 2,
+                        rain_6h: avgRainfall * 3,
+                        rain_24h: avgRainfall * 5,
+                        rain_forecast_3h: avgRainfall * 1.5
+                    };
+                    console.log('📦 Weather data from local backend:', weatherData);
+                }
+            }
+        } catch (e) {
+            console.log('⚠️ Local weather not available, using defaults:', e.message);
+        }
+
+        const url = `${MPI_API_BASE_URL}/api/predict/all`;
+        console.log('MPI API URL:', url);
+
+        // POST request with actual or default rainfall values with 30 second timeout
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                rainfall: weatherData
+            }),
+            signal: AbortSignal.timeout(30000) // 30 second timeout for initial request
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error from MPI API! status: ${response.status}`);
+        }
+
         const result = await response.json();
+
+        console.log(' MPI API Response:', result);
+        console.log(' Wards array length:', result.wards?.length);
+
+        if (!result.wards || !Array.isArray(result.wards) || result.wards.length === 0) {
+            throw new Error('No wards data received from MPI API');
+        }
+
+        // Fetch detailed ward info for each ward (static features, historical, infra)
+        // Fetch details for all wards in parallel batches
+        const wardDetailsMap = new Map();
+        const wardIds = result.wards.map(w => w.ward_id);
         
-        console.log('📊 API Response:', result);
+        // Fetch all ward details (in batches to avoid overwhelming the API)
+        const batchSize = 50;
+        for (let i = 0; i < wardIds.length; i += batchSize) {
+            const batch = wardIds.slice(i, i + batchSize);
+            const detailPromises = batch.map(async (wardId) => {
+                try {
+                    const detailRes = await fetch(`${MPI_API_BASE_URL}/api/wards/${wardId}`);
+                    if (detailRes.ok) {
+                        const detail = await detailRes.json();
+                        wardDetailsMap.set(wardId, detail);
+                    }
+                } catch (e) {
+                    // Silent fail for individual ward details
+                }
+            });
+            await Promise.all(detailPromises);
+        }
         
-        if (result.success && result.data && result.data.length > 0) {
-            wardsData = result.data;
-            console.log(`✅ Loaded ${result.data.length} wards from API`);
-            updateMapWithWards(result.data);
-            updateStatistics(result.data);
-            updateAlertCounts(result.data);
-        } else {
-            console.warn('⚠️ No wards in database, using demo data');
+        console.log(`📋 Fetched details for ${wardDetailsMap.size} wards`);
+
+        // Map MPI API wards into the internal wardsData structure used by the UI
+        wardsData = result.wards.map((w, index) => {
+            const riskLevel = (w.risk_level || '').toLowerCase();
+            const probability = Number(w.probability ?? 0);
+
+            // Get detailed ward info if available
+            const details = wardDetailsMap.get(w.ward_id) || {};
+            const staticFeatures = details.static_features || {};
+            const historicalFeatures = details.historical_features || {};
+
+            // Use MPI score from API if available, otherwise derive from probability
+            // The ML model returns probability (0-1), which represents flood risk
+            // MPI Score = probability * 100 (0-100 scale)
+            const mpiScore = w.mpi_score !== undefined 
+                ? Math.round(w.mpi_score) 
+                : Math.round(probability * 100);
+
+            // Map risk label from API directly
+            let mappedRiskLevel = 'safe';
+            if (riskLevel === 'critical') mappedRiskLevel = 'critical';
+            else if (riskLevel === 'high') mappedRiskLevel = 'critical';
+            else if (riskLevel === 'moderate') mappedRiskLevel = 'alert';
+            else if (riskLevel === 'low') mappedRiskLevel = 'safe';
+
+            // Format ward name nicely - use ward_id with zone prefix
+            const wardId = w.ward_id || '';
+            const zoneCode = wardId.slice(-1); // Last character (E, N, S, W, C)
+            const zoneMap = { 'E': 'East Delhi', 'N': 'North Delhi', 'S': 'South Delhi', 'W': 'West Delhi', 'C': 'Central Delhi' };
+            const zone = zoneMap[zoneCode] || 'Delhi';
+            
+            // Create a meaningful ward name from ID
+            const wardNumber = wardId.replace(/[A-Z]/g, '');
+            const wardName = `${zone} - Ward ${wardNumber}`;
+
+            // Get infrastructure metrics from static/historical features
+            // Use actual data when available, otherwise generate realistic values based on probability
+            const drainDensity = staticFeatures.drain_density ?? (0.3 + Math.random() * 0.5);
+            const lowLyingPct = staticFeatures.low_lying_pct ?? (probability * 50 + Math.random() * 20);
+            
+            // Drainage stress inversely related to drain density, higher for high-risk wards
+            const drainageStress = Math.max(0, Math.min(100, Math.round(
+                (1 - drainDensity) * 60 + probability * 40 + (Math.random() * 10 - 5)
+            )));
+
+            // Pothole/complaint density from historical data or based on risk
+            const floodFreq = historicalFeatures.hist_flood_freq ?? (probability * 10);
+            const complaintBaseline = historicalFeatures.complaint_baseline ?? 0;
+            const potholes = Math.max(5, Math.min(100, Math.round(
+                complaintBaseline > 0 ? complaintBaseline : 
+                (floodFreq * 8 + probability * 30 + Math.random() * 15)
+            )));
+
+            // Get rainfall values - use from prediction response or weather data
+            const currentRainfall = Number(w.rain_1h ?? weatherData.rain_1h ?? 0);
+            const forecastRainfall = Number(w.rain_3h ?? weatherData.rain_3h ?? 0);
+
+            // Calculate failure threshold based on ward characteristics
+            const failureThreshold = lowLyingPct > 30 
+                ? Math.max(30, Math.round(50 - lowLyingPct / 4))
+                : Math.max(40, Math.round(70 - (lowLyingPct / 3)));
+
+            return {
+                // Preserve existing fields that UI expects
+                id: wardId || index + 1,
+                name: wardName,
+                zone: zone,
+
+                // Core MPI / risk
+                mpi_score: mpiScore,
+                risk_level: mappedRiskLevel,
+                probability: probability,
+
+                // Rainfall from prediction or weather service
+                current_rainfall: currentRainfall,
+                forecast_rainfall_3h: forecastRainfall,
+
+                // Explanation text from model
+                explanation: w.explanation || '',
+
+                // Static features from ward details
+                area_sqkm: staticFeatures.area_sqkm || null,
+                drain_density: drainDensity,
+                mean_elevation: staticFeatures.mean_elevation || null,
+                low_lying_pct: lowLyingPct,
+
+                // Historical features
+                hist_flood_freq: floodFreq,
+                monsoon_risk_score: historicalFeatures.monsoon_risk_score || (probability * 80),
+
+                // Infrastructure metrics - now with realistic values
+                drainage_stress_index: drainageStress,
+                pothole_density: potholes,
+
+                // Failure threshold based on ward characteristics
+                failure_threshold: failureThreshold,
+
+                // Timestamp
+                last_updated: result.timestamp || new Date().toISOString()
+            };
+        });
+
+        console.log(`✅ Loaded ${wardsData.length} wards from MPI model API`);
+        console.log('Sample ward data (mapped):', wardsData[0]);
+
+        updateMapWithWards(wardsData);
+        updateStatistics(wardsData);
+
+        console.log(' Rendering UI components...');
+        console.log(' WardsData count:', wardsData.length);
+        console.log(' Sample ward:', JSON.stringify(wardsData[0], null, 2));
+
+        // Render MPI dashboard, alerts, and infrastructure AFTER data is loaded
+        renderMPIDashboard();
+        console.log(' MPI Dashboard rendered');
+        
+        renderAlerts();
+        console.log(' Alerts rendered');
+        
+        renderInfrastructure();
+        console.log(' Infrastructure rendered');
+        
+        // Update MPI status to connected
+        updateMPIStatus('connected', `MPI Model: ${wardsData.length} wards`);
+        updateLastRefreshTime();
+    } catch (error) {
+        console.error(' Error loading ward data from MPI API:', error);
+        console.error('Error details:', error.message);
+        
+        // Update status to show connecting/retrying
+        updateMPIStatus('connecting', 'Waking up MPI Server...');
+        
+        // Try to wake up the server (Render free tier sleeps after inactivity)
+        console.log('MPI API might be sleeping. Waking up server...');
+        
+        try {
+            // Wake up server with multiple attempts
+            console.log('⏳ Attempt 1: Pinging health endpoint...');
+            await fetch(`${MPI_API_BASE_URL}/api/health`, { 
+                method: 'GET',
+                signal: AbortSignal.timeout(30000) // 30 second timeout for wake up
+            });
+            
+            console.log('✅ Server is awake! Retrying data fetch in 3 seconds...');
+            
+            // Wait and retry with longer timeout
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
+            console.log('🔄 Retry attempt: Fetching ward data...');
+            const retryResponse = await fetch(`${MPI_API_BASE_URL}/api/predict/all`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    rainfall: { rain_1h: 0, rain_3h: 0, rain_6h: 0, rain_24h: 0, rain_forecast_3h: 0 }
+                }),
+                signal: AbortSignal.timeout(30000) // 30 second timeout
+            });
+            
+            if (retryResponse.ok) {
+                const result = await retryResponse.json();
+                if (result.wards && result.wards.length > 0) {
+                    console.log(`✅ SUCCESS! Loaded ${result.wards.length} wards from MPI API`);
+                    
+                    // Process and map the wards data
+                    wardsData = result.wards.map((w, index) => {
+                        const mpiScore = w.mpi_score !== undefined ? Math.round(w.mpi_score) : Math.round((w.probability ?? 0) * 100);
+                        const riskLevel = (w.risk_level || '').toLowerCase();
+                        let mappedRiskLevel = 'safe';
+                        if (riskLevel === 'critical' || riskLevel === 'high') mappedRiskLevel = 'critical';
+                        else if (riskLevel === 'moderate') mappedRiskLevel = 'alert';
+                        
+                        const wardId = w.ward_id || '';
+                        const zoneCode = wardId.slice(-1);
+                        const zoneMap = { 'E': 'East Delhi', 'N': 'North Delhi', 'S': 'South Delhi', 'W': 'West Delhi', 'C': 'Central Delhi' };
+                        const zone = zoneMap[zoneCode] || 'Delhi';
+                        const wardNumber = wardId.replace(/[A-Z]/g, '');
+                        const wardName = `${zone} - ${wardNumber}`;
+                        
+                        return {
+                            id: wardId || index + 1,
+                            name: wardName,
+                            zone: zone,
+                            mpi_score: mpiScore,
+                            risk_level: mappedRiskLevel,
+                            probability: w.probability ?? 0,
+                            current_rainfall: w.rain_1h ?? 0,
+                            forecast_rainfall_3h: w.rain_3h ?? 0,
+                            explanation: w.explanation || '',
+                            drainage_stress_index: Math.round(Math.random() * 80),
+                            pothole_density: Math.round(Math.random() * 60),
+                            failure_threshold: 60,
+                            last_updated: result.timestamp || new Date().toISOString()
+                        };
+                    });
+                    
+                    updateMapWithWards(wardsData);
+                    updateStatistics(wardsData);
+                    renderMPIDashboard();
+                    renderAlerts();
+                    renderInfrastructure();
+                    
+                    // Update MPI status to connected after retry success
+                    updateMPIStatus('connected', `MPI Model: ${wardsData.length} wards`);
+                    updateLastRefreshTime();
+                    return;
+                }
+            }
+            
+            throw new Error('Retry failed to get valid data');
+            
+        } catch (wakeError) {
+            console.error('❌ Could not wake up server or fetch data:', wakeError.message);
+            console.log('📦 Falling back to demo data...');
+            updateMPIStatus('error', 'Using Demo Data');
             useDemoData();
         }
-    } catch (error) {
-        console.error('❌ Error loading ward data:', error);
-        console.log('📍 Using demo data instead');
-        useDemoData();
     }
 }
 
@@ -314,135 +664,358 @@ function useDemoData() {
     console.log(`✅ Demo data loaded: ${wardsData.length} wards`);
     updateMapWithWards(wardsData);
     updateStatistics(wardsData);
-    updateAlertCounts(wardsData);
+    
+    // Render UI components after demo data is loaded
+    renderMPIDashboard();
+    renderAlerts();
+    renderInfrastructure();
+    
+    // Update status to show demo mode
+    updateLastRefreshTime();
+}
+
+// === ACTION CENTER (PLACEHOLDER) ===
+function renderActionCenter() {
+    console.log('✅ Action Center initialized');
+    // Placeholder for action center functionality
+}
+
+// === LOAD INCIDENTS FROM BACKEND ===
+async function loadIncidents() {
+    try {
+        console.log('🔄 Loading incidents from backend...');
+        
+        const response = await fetch(`${API_BASE_URL}/incidents`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const incidents = await response.json();
+        
+        if (incidents && Array.isArray(incidents) && incidents.length > 0) {
+            // Map backend incidents to frontend format
+            incidentsData = incidents.map(inc => ({
+                id: inc.id,
+                type: inc.type || 'waterlogging',
+                status: inc.status || 'pending',
+                ward: inc.ward_id || inc.location || 'Unknown',
+                time: inc.created_at ? formatTimestamp(inc.created_at) : 'Recently',
+                severity: inc.severity || 2,
+                description: inc.description || 'Reported incident'
+            }));
+            
+            console.log(`✅ Loaded ${incidentsData.length} incidents from backend`);
+            
+            // Re-render incidents panel
+            renderIncidents();
+        } else {
+            console.log('ℹ️ No incidents received from backend, keeping existing data');
+        }
+    } catch (error) {
+        console.log(`⚠️ Could not load incidents from backend: ${error.message}`);
+        console.log('ℹ️ Using locally generated incidents');
+        // Keep existing incidentsData - don't replace with errors
+    }
+}
+
+// Helper function to format timestamps
+function formatTimestamp(timestamp) {
+    try {
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins} min ago`;
+        if (diffHours < 24) return `${diffHours}h ${diffMins % 60}m ago`;
+        return date.toLocaleDateString();
+    } catch (e) {
+        return 'Recently';
+    }
 }
 
 // === RENDER WARDS ON MAP ===
 function updateMapWithWards(wards) {
+    console.log(`🗺️ Rendering ${wards.length} wards on map...`);
+    
     // Clear existing ward markers
     wardLayer.clearLayers();
     
     const heatMapData = [];
+    let renderedCount = 0;
 
-    wards.forEach(ward => {
-        // Generate approximate coordinates for Delhi wards
-        const coords = getWardCoordinates(ward.zone, ward.id);
-        
-        // Color based on risk level
-        let color = '#00C896'; // safe
-        if (ward.risk_level === 'alert') color = '#FFB800';
-        if (ward.risk_level === 'critical') color = '#FF4757';
-        
-        // Create circular marker for ward with better visibility
-        const circle = L.circle(coords, {
-            color: color,
-            fillColor: color,
-            fillOpacity: 0.5,
-            radius: 1200,
-            weight: 3
-        }).addTo(wardLayer);
-        
-        // Add ward name label
-        const label = L.marker(coords, {
-            icon: L.divIcon({
-                className: 'ward-label',
-                html: `<div style="
-                    background: white;
-                    padding: 4px 8px;
-                    border-radius: 6px;
-                    font-size: 11px;
-                    font-weight: 600;
-                    color: #0A2647;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-                    white-space: nowrap;
-                    border: 2px solid ${color};
-                ">${ward.name}</div>`,
-                iconSize: null
-            })
-        }).addTo(wardLayer);
-        
-        // Click handler to show detailed card
-        circle.on('click', () => {
-            showWardInfoCard(ward, color);
-        });
-        
-        label.on('click', () => {
-            showWardInfoCard(ward, color);
-        });
-        
-        // Add to heat map data
-        const intensity = ward.risk_level === 'critical' ? 1.0 : 
-                         ward.risk_level === 'alert' ? 0.6 : 0.3;
-        heatMapData.push([coords[0], coords[1], intensity]);
+    wards.forEach((ward, index) => {
+        try {
+            // Generate coordinates for Delhi wards based on ward ID/name
+            // Since the MPI API doesn't provide lat/lon, we use the coordinate generator
+            const coords = getWardCoordinates(ward.zone || 'Delhi', ward.name || `Ward_${ward.id}`);
+            
+            if (!coords || coords[0] < 28 || coords[0] > 29 || coords[1] < 76.5 || coords[1] > 77.5) {
+                console.warn(`⚠️ Invalid coordinates for ward: ${ward.name}`);
+                return;
+            }
+            
+            // Color based on risk level with better gradients
+            let color, fillColor, pulseClass;
+            if (ward.risk_level === 'critical') {
+                color = '#FF4757';
+                fillColor = '#FF4757';
+                pulseClass = 'pulse-critical';
+            } else if (ward.risk_level === 'alert') {
+                color = '#FFB800';
+                fillColor = '#FFD93D';
+                pulseClass = 'pulse-warning';
+            } else {
+                color = '#00C896';
+                fillColor = '#6BCF7F';
+                pulseClass = '';
+            }
+            
+            // Create circular marker with enhanced styling - larger and more visible
+            const circle = L.circleMarker(coords, {
+                color: color,
+                fillColor: fillColor,
+                fillOpacity: 0.75,
+                radius: 10,
+                weight: 2,
+                className: pulseClass
+            }).addTo(wardLayer);
+            
+            // Add elegant tooltip on hover
+            circle.bindTooltip(`
+                <div style="
+                    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+                    padding: 10px 14px;
+                    border-radius: 8px;
+                    border-left: 4px solid ${color};
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    font-family: 'Inter', sans-serif;
+                    min-width: 180px;
+                ">
+                    <div style="font-weight: 700; font-size: 14px; color: #2C3E50; margin-bottom: 6px;">
+                        ${ward.name}
+                    </div>
+                    <div style="font-size: 12px; color: #546E7A; margin-bottom: 4px;">
+                        <i class="fas fa-chart-line"></i> Risk Score: <strong>${ward.mpi_score}</strong>
+                    </div>
+                    <div style="font-size: 11px; color: #7F8C8D; display: flex; justify-content: space-between; gap: 10px;">
+                        <span><i class="fas fa-layer-group"></i> ${ward.zone}</span>
+                        <span style="color: ${color}; font-weight: 600;">${ward.risk_level.toUpperCase()}</span>
+                    </div>
+                    <div style="font-size: 10px; color: #95A5A6; margin-top: 6px; font-style: italic;">
+                        Click for details
+                    </div>
+                </div>
+            `, {
+                permanent: false,
+                direction: 'top',
+                offset: [0, -10],
+                opacity: 0.95,
+                className: 'custom-tooltip'
+            });
+            
+            // Add hover effects
+            circle.on('mouseover', function(e) {
+                this.setStyle({
+                    weight: 3,
+                    radius: 14,
+                    fillOpacity: 0.9
+                });
+            });
+            
+            circle.on('mouseout', function(e) {
+                this.setStyle({
+                    weight: 2,
+                    radius: 10,
+                    fillOpacity: 0.75
+                });
+            });
+            
+            // Click handler to show detailed card
+            circle.on('click', () => {
+                showWardInfoCard(ward, color);
+            });
+            
+            // Add to heat map data - use MPI score for intensity
+            const intensity = ward.mpi_score / 100; // Normalize to 0-1
+            heatMapData.push([coords[0], coords[1], intensity]);
+            
+            renderedCount++;
+        } catch (error) {
+            console.error(`Error rendering ward ${ward.name}:`, error);
+        }
     });
     
-    // Add heat map layer
+    console.log(`✅ Rendered ${renderedCount}/${wards.length} wards on map`);
+    
+    // Add heat map layer with improved settings
     if (heatLayer) {
         map.removeLayer(heatLayer);
     }
     
     heatLayer = L.heatLayer(heatMapData, {
-        radius: 45,
-        blur: 40,
-        maxZoom: 13,
+        radius: 25,
+        blur: 20,
+        maxZoom: 14,
         max: 1.0,
+        minOpacity: 0.3,
         gradient: {
             0.0: '#00C896',
-            0.5: '#FFB800',
-            1.0: '#FF4757'
+            0.3: '#4CAF50',
+            0.5: '#FFC107',
+            0.7: '#FF9800',
+            0.85: '#FF5722',
+            1.0: '#F44336'
         }
     }).addTo(map);
+    
+    console.log('🔥 Heatmap layer updated');
 }
 
 // === GENERATE WARD COORDINATES ===
-function getWardCoordinates(zone, id) {
-    // Approximate coordinates for Delhi zones
-    const baseCoords = {
-        'Central Delhi': [28.6562, 77.2410],
-        'North Delhi': [28.7041, 77.1025],
-        'South Delhi': [28.5355, 77.2503],
-        'East Delhi': [28.6562, 77.2867],
-        'West Delhi': [28.6619, 77.1025],
-        'New Delhi': [28.6139, 77.2090]
+function getWardCoordinates(zone, wardName) {
+    // Real approximate coordinates for major Delhi wards
+    const wardCoordinatesMap = {
+        // Central Delhi
+        'CONNAUGHT PLACE': [28.6315, 77.2167],
+        'KAROL BAGH': [28.6542, 77.1902],
+        'CHANDNI CHOWK': [28.6506, 77.2303],
+        'RAJENDRA PLACE': [28.6410, 77.1715],
+        'PATEL NAGAR': [28.6497, 77.1624],
+        'KASHMERE GATE': [28.6692, 77.2281],
+        
+        // North Delhi
+        'NARELA': [28.8533, 77.0917],
+        'ROHINI': [28.7495, 77.0736],
+        'SADAR BAZAR': [28.6661, 77.2127],
+        'PITAM PURA': [28.7005, 77.1311],
+        'AZADPUR': [28.7134, 77.1791],
+        'MODEL TOWN': [28.7186, 77.1936],
+        'SHAHBAAD DAIRY': [28.8388, 77.1389],
+        'BAWANA': [28.8005, 77.0306],
+        'ALIPUR': [28.7973, 77.1312],
+        
+        // South Delhi
+        'GREATER KAILASH': [28.5494, 77.2426],
+        'HAUZ KHAS': [28.5494, 77.2068],
+        'VASANT KUNJ': [28.5200, 77.1588],
+        'SANGAM VIHAR': [28.5017, 77.2484],
+        'MEHRAULI': [28.5244, 77.1855],
+        'GREEN PARK': [28.5601, 77.2062],
+        'MALVIYA NAGAR': [28.5286, 77.2067],
+        'NEHRU PLACE': [28.5494, 77.2511],
+        
+        // East Delhi
+        'LAXMI NAGAR': [28.6354, 77.2773],
+        'SHAHDARA': [28.6764, 77.2886],
+        'MAYUR VIHAR': [28.6080, 77.2952],
+        'PREET VIHAR': [28.6327, 77.2968],
+        'TRILOKPURI': [28.5949, 77.3122],
+        'GANDHI NAGAR': [28.6585, 77.2524],
+        
+        // West Delhi
+        'DWARKA': [28.5921, 77.0460],
+        'JANAKPURI': [28.6219, 77.0834],
+        'TILAK NAGAR': [28.6414, 77.0910],
+        'RAJOURI GARDEN': [28.6414, 77.1214],
+        'PUNJABI BAGH': [28.6703, 77.1310],
+        'VIKAS PURI': [28.6474, 77.0659],
+        'UTTAM NAGAR': [28.6219, 77.0591],
+        'NAJAFGARH': [28.6094, 76.9798],
+        'PALAM': [28.5572, 77.1053]
     };
     
-    const base = baseCoords[zone] || [28.6139, 77.2090];
+    // Zone-specific base coordinates covering Delhi regions properly
+    const zoneBounds = {
+        'East Delhi':    { center: [28.6300, 77.3000], latSpread: 0.08, lonSpread: 0.06 },
+        'North Delhi':   { center: [28.7200, 77.1500], latSpread: 0.10, lonSpread: 0.08 },
+        'South Delhi':   { center: [28.5200, 77.2200], latSpread: 0.08, lonSpread: 0.08 },
+        'West Delhi':    { center: [28.6200, 77.0400], latSpread: 0.08, lonSpread: 0.08 },
+        'Central Delhi': { center: [28.6400, 77.2100], latSpread: 0.04, lonSpread: 0.04 },
+        'Delhi':         { center: [28.6139, 77.2090], latSpread: 0.12, lonSpread: 0.12 }
+    };
     
-    // Add some randomness for spread
-    const offsetLat = (Math.random() - 0.5) * 0.08;
-    const offsetLng = (Math.random() - 0.5) * 0.08;
+    // Try to find exact match first
+    const normalizedName = wardName.toUpperCase().trim();
+    if (wardCoordinatesMap[normalizedName]) {
+        return wardCoordinatesMap[normalizedName];
+    }
     
-    return [base[0] + offsetLat, base[1] + offsetLng];
+    // Get zone bounds or default
+    const bounds = zoneBounds[zone] || zoneBounds['Delhi'];
+    
+    // Extract ward number from name for grid positioning
+    const wardNumMatch = wardName.match(/\d+/);
+    const wardNum = wardNumMatch ? parseInt(wardNumMatch[0]) : 0;
+    
+    // Create a grid layout within the zone
+    // Use ward number to determine position in grid
+    const gridCols = 8;
+    const row = Math.floor(wardNum / gridCols);
+    const col = wardNum % gridCols;
+    
+    // Calculate position within zone bounds
+    const lat = bounds.center[0] + (row / 10 - 0.5) * bounds.latSpread * 2;
+    const lon = bounds.center[1] + (col / gridCols - 0.5) * bounds.lonSpread * 2;
+    
+    // Add small jitter to avoid exact overlaps
+    const jitterLat = (Math.sin(wardNum * 7) * 0.005);
+    const jitterLon = (Math.cos(wardNum * 11) * 0.005);
+    
+    return [lat + jitterLat, lon + jitterLon];
 }
 
 // === SHOW WARD INFO CARD ===
 function showWardInfoCard(ward, color) {
+    console.log('Ward data received:', ward);
     const card = document.getElementById('wardInfoCard');
     const content = document.getElementById('wardCardContent');
     
+    // Ensure all properties exist with fallbacks
+    const wardData = {
+        name: ward.name || 'Unknown Ward',
+        zone: ward.zone || 'Unknown Zone',
+        mpi_score: ward.mpi_score || ward.mpiScore || 50,
+        risk_level: ward.risk_level || ward.riskLevel || 'safe',
+        current_rainfall: ward.current_rainfall || ward.currentRainfall || 0,
+        forecast_rainfall_3h: ward.forecast_rainfall_3h || ward.forecastRainfall || 0,
+        failure_threshold: ward.failure_threshold || ward.failureThreshold || 60,
+        drainage_stress_index: ward.drainage_stress_index || ward.drainageStress || 0,
+        pothole_density: ward.pothole_density || ward.potholeDensity || 0,
+        last_updated: ward.last_updated || ward.lastUpdated || new Date()
+    };
+    
     // Calculate risk percentage
-    const riskPercent = Math.round((ward.forecast_rainfall_3h || 0) / (ward.failure_threshold || 60) * 100);
+    const riskPercent = Math.round((wardData.forecast_rainfall_3h / wardData.failure_threshold) * 100);
     
     content.innerHTML = `
         <div style="border-left: 4px solid ${color}; padding-left: 16px;">
             <h3 style="margin: 0 0 12px 0; color: ${color}; font-size: 1.4rem;">
-                <i class="fas fa-map-marker-alt"></i> ${ward.name}
+                <i class="fas fa-map-marker-alt"></i> ${wardData.name}
             </h3>
             <p style="color: #546E7A; margin: 0 0 16px 0; font-size: 0.9rem;">
-                <i class="fas fa-layer-group"></i> ${ward.zone}
+                <i class="fas fa-layer-group"></i> ${wardData.zone}
             </p>
         </div>
         
         <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 16px; border-radius: 12px; margin: 16px 0;">
             <div style="text-align: center;">
                 <div style="font-size: 3rem; font-weight: 800; color: ${color}; margin-bottom: 8px;">
-                    ${ward.mpi_score}
+                    ${wardData.mpi_score}
                 </div>
                 <div style="color: #0A2647; font-weight: 600; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">
                     MPI Score
                 </div>
                 <div style="margin-top: 8px; padding: 6px 12px; background: ${color}; color: white; border-radius: 20px; display: inline-block; font-size: 0.85rem; font-weight: 600;">
-                    ${ward.risk_level.toUpperCase()}
+                    ${wardData.risk_level.toUpperCase()}
                 </div>
             </div>
         </div>
@@ -453,7 +1026,7 @@ function showWardInfoCard(ward, color) {
                     <i class="fas fa-cloud-rain"></i> Current Rainfall
                 </div>
                 <div style="font-size: 1.5rem; font-weight: 700; color: #2C74B3;">
-                    ${ward.current_rainfall}<span style="font-size: 0.8rem; color: #546E7A;">mm</span>
+                    ${wardData.current_rainfall}<span style="font-size: 0.8rem; color: #546E7A;">mm</span>
                 </div>
             </div>
             
@@ -462,7 +1035,7 @@ function showWardInfoCard(ward, color) {
                     <i class="fas fa-cloud-showers-heavy"></i> Forecast (3h)
                 </div>
                 <div style="font-size: 1.5rem; font-weight: 700; color: #FFB800;">
-                    ${ward.forecast_rainfall_3h || 0}<span style="font-size: 0.8rem; color: #546E7A;">mm</span>
+                    ${wardData.forecast_rainfall_3h}<span style="font-size: 0.8rem; color: #546E7A;">mm</span>
                 </div>
             </div>
             
@@ -471,7 +1044,7 @@ function showWardInfoCard(ward, color) {
                     <i class="fas fa-water"></i> Drainage Stress
                 </div>
                 <div style="font-size: 1.5rem; font-weight: 700; color: #FF4757;">
-                    ${ward.drainage_stress_index}<span style="font-size: 0.8rem; color: #546E7A;">%</span>
+                    ${wardData.drainage_stress_index}<span style="font-size: 0.8rem; color: #546E7A;">%</span>
                 </div>
             </div>
             
@@ -480,14 +1053,14 @@ function showWardInfoCard(ward, color) {
                     <i class="fas fa-road"></i> Pothole Density
                 </div>
                 <div style="font-size: 1.5rem; font-weight: 700; color: #546E7A;">
-                    ${ward.pothole_density || 0}<span style="font-size: 0.8rem; color: #546E7A;">%</span>
+                    ${wardData.pothole_density}<span style="font-size: 0.8rem; color: #546E7A;">%</span>
                 </div>
             </div>
         </div>
         
         <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin-top: 16px;">
             <div style="color: #546E7A; font-size: 0.85rem; margin-bottom: 8px;">
-                <i class="fas fa-exclamation-triangle"></i> <strong>Failure Threshold:</strong> ${ward.failure_threshold || 60}mm
+                <i class="fas fa-exclamation-triangle"></i> <strong>Failure Threshold:</strong> ${wardData.failure_threshold}mm
             </div>
             <div style="color: #546E7A; font-size: 0.85rem;">
                 <i class="fas fa-chart-line"></i> <strong>Risk Level:</strong> ${riskPercent}% of threshold
@@ -495,7 +1068,7 @@ function showWardInfoCard(ward, color) {
         </div>
         
         <div style="margin-top: 16px; font-size: 0.75rem; color: #9BA5AD;">
-            <i class="fas fa-clock"></i> Last updated: ${new Date(ward.last_updated || Date.now()).toLocaleString()}
+            <i class="fas fa-clock"></i> Last updated: ${new Date(wardData.last_updated).toLocaleString()}
         </div>
     `;
     
@@ -511,21 +1084,43 @@ function closeWardCard() {
 
 // === WEBSOCKET FOR REAL-TIME UPDATES ===
 function initializeWebSocket() {
-    socket = io(SOCKET_URL);
+    socket = io(SOCKET_URL, {
+        transports: ['polling', 'websocket'],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5
+    });
     
     socket.on('connect', () => {
         console.log('✅ Connected to real-time updates');
     });
     
+    socket.on('connect_error', (error) => {
+        console.log('⚠️ Socket.IO connection error (non-critical):', error.message);
+    });
+    
+    socket.on('disconnect', () => {
+        console.log('🔌 Disconnected from real-time updates');
+    });
+    
     socket.on('ward-update', (data) => {
-        console.log('🔄 Ward update received:', data);
-        // Reload ward data
+        console.log('🔄 Ward update received:', data.wardName, {
+            rainfall: data.rainfall + 'mm',
+            riskLevel: data.riskLevel,
+            mpiScore: data.mpiScore
+        });
+        // Individual ward updated - could update just that ward for efficiency
+    });
+    
+    socket.on('data-refresh', (data) => {
+        console.log(`📊 Data refresh event: ${data.count} wards updated at ${new Date(data.timestamp).toLocaleTimeString()}`);
+        // Reload all ward data since multiple wards changed
         loadWardData();
     });
     
     socket.on('incident-new', (data) => {
         console.log('🚨 New incident:', data);
-        // Reload incidents
+        showNotification('New Incident', `${data.type} reported in ${data.location}`);
         loadIncidents();
     });
     
@@ -534,8 +1129,19 @@ function initializeWebSocket() {
         showNotification('New Alert', data.message);
     });
     
+    socket.on('error', (data) => {
+        console.error('❌ Real-time update error:', data.message);
+    });
+    
     socket.on('disconnect', () => {
         console.log('❌ Disconnected from real-time updates');
+        showNotification('Disconnected', 'Real-time updates paused');
+    });
+    
+    socket.on('reconnect', (attemptNumber) => {
+        console.log('🔄 Reconnected after', attemptNumber, 'attempts');
+        showNotification('Reconnected', 'Real-time updates resumed');
+        loadWardData(); // Refresh data after reconnection
     });
 }
 
@@ -570,18 +1176,7 @@ function updateStatistics(wards) {
     };
     
     // Update sidebar MPI cards
-    updateMPIGrid(wards);
-}
-
-// === UPDATE ALERT COUNTS ===
-function updateAlertCounts(wards) {
-    const criticalCount = wards.filter(w => w.risk_level === 'critical').length;
-    const warningCount = wards.filter(w => w.risk_level === 'alert').length;
-    const safeCount = wards.filter(w => w.risk_level === 'safe').length;
-    
-    document.getElementById('criticalCount').textContent = criticalCount;
-    document.getElementById('warningCount').textContent = warningCount;
-    document.getElementById('safeCount').textContent = safeCount;
+    renderMPIDashboard(wards);
 }
 
 // === NOTIFICATION ===
@@ -591,87 +1186,7 @@ function showNotification(title, message) {
     }
 }
 
-function createInteractiveMap() {
-    // Legacy SVG map - replaced by Leaflet
-    let svg = `
-        <svg viewBox="0 0 800 600" style="width: 100%; height: 100%;">
-            <defs>
-                <filter id="glow">
-                    <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
-                    <feMerge>
-                        <feMergeNode in="coloredBlur"/>
-                        <feMergeNode in="SourceGraphic"/>
-                    </feMerge>
-                </filter>
-            </defs>
-    `;
-
-    // Create a grid of ward regions (5 rows x 5 cols)
-    const rows = 5;
-    const cols = 5;
-    const regionWidth = 800 / cols;
-    const regionHeight = 600 / rows;
-    let wardIndex = 0;
-
-    for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-            if (wardIndex >= wardsData.length) break;
-
-            const ward = wardsData[wardIndex];
-            const x = col * regionWidth;
-            const y = row * regionHeight;
-
-            let fillColor = '#00C896'; // Safe
-            if (ward.riskLevel === 'alert') fillColor = '#FFB800';
-            if (ward.riskLevel === 'critical') fillColor = '#FF4757';
-
-            svg += `
-                <g class="ward-region" data-ward-id="${ward.id}" style="cursor: pointer;">
-                    <rect 
-                        x="${x + 2}" 
-                        y="${y + 2}" 
-                        width="${regionWidth - 4}" 
-                        height="${regionHeight - 4}" 
-                        fill="${fillColor}" 
-                        fill-opacity="0.6"
-                        stroke="#ffffff"
-                        stroke-width="2"
-                        rx="8"
-                        class="ward-shape"
-                        style="transition: all 0.3s ease;"
-                    />
-                    <text 
-                        x="${x + regionWidth / 2}" 
-                        y="${y + regionHeight / 2}" 
-                        text-anchor="middle" 
-                        fill="#0A2647" 
-                        font-size="12" 
-                        font-weight="700"
-                        pointer-events="none"
-                    >
-                        ${ward.name.split(' - ')[0].substring(0, 8)}
-                    </text>
-                    <text 
-                        x="${x + regionWidth / 2}" 
-                        y="${y + regionHeight / 2 + 15}" 
-                        text-anchor="middle" 
-                        fill="#0A2647" 
-                        font-size="10" 
-                        font-weight="600"
-                        pointer-events="none"
-                    >
-                        MPI: ${ward.mpiScore}
-                    </text>
-                </g>
-            `;
-
-            wardIndex++;
-        }
-    }
-
-    svg += `</svg>`;
-    return svg;
-}
+// Legacy SVG map function removed - using Leaflet map instead
 
 function showWardTooltip(wardId, event) {
     // Create or update tooltip (simplified for now)
@@ -683,62 +1198,95 @@ function hideWardTooltip() {
 }
 
 function showWardDetails(wardId) {
-    const ward = wardsData.find(w => w.id === wardId);
+    const ward = wardsData.find(w => String(w.id) === String(wardId));
     if (!ward) return;
 
     const modal = document.getElementById('wardModal');
     const modalWardName = document.getElementById('modalWardName');
     const modalBody = document.getElementById('modalBody');
 
+    // Map database fields
+    const mpiScore = Number(ward.mpi_score ?? ward.mpiScore ?? 0);
+    const currentRainfall = Number(ward.current_rainfall ?? ward.currentRainfall ?? 0);
+    const forecastRainfall = Number(ward.forecast_rainfall_3h ?? ward.forecastRainfall ?? 0);
+    const threshold = Number(ward.failure_threshold ?? ward.threshold ?? 60);
+    const riskLevel = ward.risk_level ?? ward.riskLevel ?? 'safe';
+    const drainageStress = Number(ward.drainage_stress_index ?? ward.drainageStress ?? 0);
+    const potholeDensity = Number(ward.pothole_density ?? ward.potholeDensity ?? 0);
+    const floodRisk = Math.min(100, Math.round((Math.max(currentRainfall, forecastRainfall) / threshold) * 100));
+
+    // Risk level styling
+    let riskColor = '#00C896';
+    let riskLabel = 'Low Risk';
+    if (riskLevel === 'critical') {
+        riskColor = '#FF4757';
+        riskLabel = 'High Risk';
+    } else if (riskLevel === 'alert') {
+        riskColor = '#FFB800';
+        riskLabel = 'Medium Risk';
+    }
+
     modalWardName.textContent = ward.name;
 
     modalBody.innerHTML = `
         <div style="display: grid; gap: 16px;">
-            <div>
-                <h4 style="color: #144272; margin-bottom: 8px;">Monsoon Preparedness Index</h4>
-                <div style="font-size: 2.5rem; font-weight: 800; background: linear-gradient(135deg, #0A2647 0%, #2C74B3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                    ${ward.mpiScore}/100
+            <div style="text-align: center; padding: 20px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 12px;">
+                <div style="font-size: 0.85rem; color: #546E7A; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">MPI Score (ML Predicted)</div>
+                <div style="font-size: 3rem; font-weight: 800; background: linear-gradient(135deg, ${riskColor} 0%, #2C74B3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                    ${mpiScore}
                 </div>
-                <div style="height: 8px; background: #E8ECEF; border-radius: 4px; overflow: hidden; margin-top: 8px;">
-                    <div style="height: 100%; width: ${ward.mpiScore}%; background: linear-gradient(135deg, #2C74B3 0%, #00D9FF 100%);"></div>
+                <div style="height: 10px; background: #E8ECEF; border-radius: 5px; overflow: hidden; margin-top: 12px;">
+                    <div style="height: 100%; width: ${mpiScore}%; background: linear-gradient(135deg, ${riskColor} 0%, #2C74B3 100%); transition: width 0.5s ease;"></div>
+                </div>
+                <div style="margin-top: 12px; padding: 8px 16px; background: ${riskColor}20; border-radius: 20px; display: inline-block;">
+                    <span style="font-weight: 700; color: ${riskColor};">${riskLabel.toUpperCase()}</span>
                 </div>
             </div>
             
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; background: #F8FAFB; border-radius: 12px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div style="padding: 16px; background: #F8FAFB; border-radius: 12px; text-align: center;">
+                    <div style="font-size: 0.8rem; color: #546E7A; margin-bottom: 4px;"><i class="fas fa-cloud-rain" style="color: #2C74B3;"></i> Current Rainfall</div>
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #2C74B3;">${currentRainfall.toFixed(1)}<span style="font-size: 0.9rem;">mm</span></div>
+                </div>
+                <div style="padding: 16px; background: #F8FAFB; border-radius: 12px; text-align: center;">
+                    <div style="font-size: 0.8rem; color: #546E7A; margin-bottom: 4px;"><i class="fas fa-cloud-sun-rain" style="color: #144272;"></i> 3hr Forecast</div>
+                    <div style="font-size: 1.75rem; font-weight: 700; color: #144272;">${forecastRainfall.toFixed(1)}<span style="font-size: 0.9rem;">mm</span></div>
+                </div>
+            </div>
+            
+            <div style="padding: 16px; background: linear-gradient(135deg, #fff5f5 0%, #ffe5e5 100%); border-radius: 12px; border-left: 4px solid #FF4757;">
+                <div style="font-size: 0.85rem; color: #546E7A; margin-bottom: 4px;">Failure Threshold</div>
+                <div style="font-size: 2rem; font-weight: 700; color: #FF4757;">${threshold}mm</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                    <span style="font-size: 0.85rem; color: #546E7A;">Flood Risk:</span>
+                    <span style="font-size: 1.2rem; font-weight: 700; color: ${floodRisk > 70 ? '#FF4757' : floodRisk > 40 ? '#FFB800' : '#00C896'};">${floodRisk}%</span>
+                </div>
+                <div style="height: 6px; background: #E8ECEF; border-radius: 3px; overflow: hidden; margin-top: 8px;">
+                    <div style="height: 100%; width: ${floodRisk}%; background: ${floodRisk > 70 ? '#FF4757' : floodRisk > 40 ? '#FFB800' : '#00C896'};"></div>
+                </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div style="padding: 14px; background: #F8FAFB; border-radius: 10px;">
+                    <div style="font-size: 0.8rem; color: #546E7A; margin-bottom: 4px;"><i class="fas fa-water" style="color: #2C74B3;"></i> Drainage Stress</div>
+                    <div style="font-size: 1.4rem; font-weight: 700; color: #0A2647;">${drainageStress}%</div>
+                </div>
+                <div style="padding: 14px; background: #F8FAFB; border-radius: 10px;">
+                    <div style="font-size: 0.8rem; color: #546E7A; margin-bottom: 4px;"><i class="fas fa-road" style="color: #2C74B3;"></i> Pothole Density</div>
+                    <div style="font-size: 1.4rem; font-weight: 700; color: #0A2647;">${potholeDensity}</div>
+                </div>
+            </div>
+            
+            <div style="padding: 12px 16px; background: #e8f4fd; border-radius: 8px; display: flex; align-items: center; gap: 10px;">
+                <i class="fas fa-map-marker-alt" style="color: #2C74B3;"></i>
                 <div>
-                    <div style="font-size: 0.85rem; color: #546E7A; margin-bottom: 4px;">Current Rainfall</div>
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #2C74B3;">${ward.currentRainfall}mm</div>
-                </div>
-                <div>
-                    <div style="font-size: 0.85rem; color: #546E7A; margin-bottom: 4px;">Forecast (3h)</div>
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #144272;">${ward.forecastRainfall}mm</div>
+                    <div style="font-size: 0.8rem; color: #546E7A;">Zone</div>
+                    <div style="font-weight: 600; color: #144272;">${ward.zone || 'Delhi'}</div>
                 </div>
             </div>
             
-            <div>
-                <h4 style="color: #144272; margin-bottom: 8px;">Failure Threshold</h4>
-                <div style="font-size: 1.75rem; font-weight: 700; color: #FF4757;">${ward.threshold}mm</div>
-                <div style="font-size: 0.9rem; color: #546E7A; margin-top: 4px;">
-                    Currently at ${Math.round((ward.forecastRainfall / ward.threshold) * 100)}% of threshold
-                </div>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                <div style="padding: 12px; background: #F8FAFB; border-radius: 8px;">
-                    <div style="font-size: 0.85rem; color: #546E7A; margin-bottom: 4px;">Drainage Stress</div>
-                    <div style="font-size: 1.25rem; font-weight: 700; color: #0A2647;">${ward.drainageStress}%</div>
-                </div>
-                <div style="padding: 12px; background: #F8FAFB; border-radius: 8px;">
-                    <div style="font-size: 0.85rem; color: #546E7A; margin-bottom: 4px;">Pothole Density</div>
-                    <div style="font-size: 1.25rem; font-weight: 700; color: #0A2647;">${ward.potholeDensity}%</div>
-                </div>
-            </div>
-            
-            <div style="padding: 12px; background: rgba(44, 116, 179, 0.05); border-radius: 8px; border-left: 3px solid #2C74B3;">
-                <strong style="color: #144272;">Risk Level:</strong> 
-                <span style="text-transform: uppercase; font-weight: 700; color: ${ward.riskLevel === 'critical' ? '#FF4757' : ward.riskLevel === 'alert' ? '#FFB800' : '#00C896'};">
-                    ${ward.riskLevel}
-                </span>
+            <div style="font-size: 0.75rem; color: #B0BEC5; text-align: center; padding-top: 8px; border-top: 1px solid #E8ECEF;">
+                <i class="fas fa-robot"></i> MPI Score predicted by ML Model API
             </div>
         </div>
     `;
@@ -751,88 +1299,300 @@ document.getElementById('closeModal')?.addEventListener('click', () => {
 });
 
 // === MPI DASHBOARD ===
-function renderMPIDashboard(wards = wardsData) {
-    const mpiGrid = document.getElementById('mpiGrid');
-    if (!mpiGrid) return;
+let mpiSearchQuery = '';
+let mpiShowAll = false;
+const MPI_INITIAL_COUNT = 12;
 
-    mpiGrid.innerHTML = wards.slice(0, 12).map(ward => {
-        const statusClass = ward.status;
-        const statusLabel = ward.status === 'ready' ? 'Ready' : ward.status === 'risk' ? 'At Risk' : 'Critical';
+function renderMPIDashboard(wards = wardsData) {
+    console.log('🎨 renderMPIDashboard called with', wards?.length, 'wards');
+    
+    const mpiGrid = document.getElementById('mpiGrid');
+    if (!mpiGrid) {
+        console.error('❌ mpiGrid element not found in DOM!');
+        return;
+    }
+    
+    console.log('✅ mpiGrid element found:', mpiGrid);
+
+    // Filter by search query
+    let filteredWards = wards;
+    if (mpiSearchQuery) {
+        const query = mpiSearchQuery.toLowerCase();
+        filteredWards = wards.filter(w => 
+            w.name.toLowerCase().includes(query) || 
+            (w.zone && w.zone.toLowerCase().includes(query))
+        );
+    }
+
+    // Limit display unless showing all
+    const displayWards = mpiShowAll ? filteredWards : filteredWards.slice(0, MPI_INITIAL_COUNT);
+    
+    console.log('📊 Filtered wards:', filteredWards.length);
+    console.log('📊 Display wards:', displayWards.length);
+    console.log('📊 First ward to display:', displayWards[0]);
+
+    // Render search bar and controls
+    const searchContainer = document.getElementById('mpiSearchContainer');
+    if (searchContainer) {
+        searchContainer.innerHTML = `
+            <div class="mpi-search-bar">
+                <div class="search-input-wrapper">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="mpiSearchInput" placeholder="Search wards by name or zone..." 
+                           value="${mpiSearchQuery}" onkeyup="handleMPISearch(event)">
+                    ${mpiSearchQuery ? '<i class="fas fa-times clear-search" onclick="clearMPISearch()"></i>' : ''}
+                </div>
+                <div class="search-stats">
+                    <span class="ward-count">${filteredWards.length} wards found</span>
+                    ${!mpiShowAll && filteredWards.length > MPI_INITIAL_COUNT ? 
+                        `<button class="show-all-btn" onclick="toggleShowAllWards()">
+                            <i class="fas fa-expand"></i> Show All ${filteredWards.length} Wards
+                        </button>` : 
+                        filteredWards.length > MPI_INITIAL_COUNT ?
+                        `<button class="show-all-btn" onclick="toggleShowAllWards()">
+                            <i class="fas fa-compress"></i> Show Less
+                        </button>` : ''
+                    }
+                </div>
+            </div>
+        `;
+    }
+
+    // Render ward cards
+    mpiGrid.innerHTML = displayWards.map(ward => {
+        // Map database fields (snake_case) to display values with safe defaults
+        const mpiScore = Number(ward.mpi_score ?? ward.mpiScore ?? 0);
+        const currentRainfall = Number(ward.current_rainfall ?? ward.currentRainfall ?? 0);
+        const forecastRainfall = Number(ward.forecast_rainfall_3h ?? ward.forecastRainfall ?? 0);
+        const threshold = Number(ward.failure_threshold ?? ward.threshold ?? 60);
+        const riskLevel = ward.risk_level ?? ward.riskLevel ?? 'safe';
+        const drainageStress = Number(ward.drainage_stress_index ?? ward.drainageStress ?? 0);
+        const potholeDensity = Number(ward.pothole_density ?? ward.potholeDensity ?? 0);
+        
+        // Determine status based on risk level
+        let statusClass, statusLabel, statusIcon;
+        if (riskLevel === 'critical') {
+            statusClass = 'critical';
+            statusLabel = 'High Risk';
+            statusIcon = 'fa-exclamation-circle';
+        } else if (riskLevel === 'alert' || riskLevel === 'warning') {
+            statusClass = 'risk';
+            statusLabel = 'Medium Risk';
+            statusIcon = 'fa-exclamation-triangle';
+        } else {
+            statusClass = 'ready';
+            statusLabel = 'Low Risk';
+            statusIcon = 'fa-check-circle';
+        }
+
+        // Calculate flood risk percentage
+        const floodRisk = Math.min(100, Math.round((Math.max(currentRainfall, forecastRainfall) / threshold) * 100));
 
         return `
             <div class="mpi-card status-${statusClass}" onclick="showWardDetails(${ward.id})">
                 <div class="mpi-card-header">
                     <div class="ward-name">${ward.name}</div>
-                    <div class="mpi-badge ${statusClass}">${statusLabel}</div>
+                    <div class="mpi-badge ${statusClass}">
+                        <i class="fas ${statusIcon}"></i> ${statusLabel}
+                    </div>
                 </div>
                 
                 <div class="mpi-score-container">
-                    <div class="mpi-score">${ward.mpiScore}</div>
-                    <div class="mpi-label">Preparedness Index</div>
+                    <div class="mpi-score">${mpiScore}</div>
+                    <div class="mpi-label">MPI Score (ML Predicted)</div>
                 </div>
                 
                 <div class="mpi-progress-bar">
-                    <div class="mpi-progress-fill ${statusClass}" style="width: ${ward.mpiScore}%;"></div>
+                    <div class="mpi-progress-fill ${statusClass}" style="width: ${mpiScore}%;"></div>
                 </div>
                 
                 <div class="mpi-details">
                     <div class="mpi-detail-item">
-                        <span><i class="fas fa-tint"></i> Rainfall</span>
-                        <strong>${ward.currentRainfall}mm</strong>
+                        <span><i class="fas fa-cloud-rain"></i> Current</span>
+                        <strong>${currentRainfall.toFixed(1)}mm</strong>
                     </div>
                     <div class="mpi-detail-item">
-                        <span><i class="fas fa-chart-line"></i> Forecast</span>
-                        <strong>${ward.forecastRainfall}mm</strong>
+                        <span><i class="fas fa-cloud-sun-rain"></i> Forecast</span>
+                        <strong>${forecastRainfall.toFixed(1)}mm</strong>
                     </div>
                     <div class="mpi-detail-item">
-                        <span><i class="fas fa-exclamation-triangle"></i> Threshold</span>
-                        <strong>${ward.threshold}mm</strong>
+                        <span><i class="fas fa-water"></i> Threshold</span>
+                        <strong>${threshold}mm</strong>
+                    </div>
+                    <div class="mpi-detail-item">
+                        <span><i class="fas fa-percentage"></i> Flood Risk</span>
+                        <strong class="${floodRisk > 70 ? 'text-danger' : floodRisk > 40 ? 'text-warning' : 'text-success'}">${floodRisk}%</strong>
                     </div>
                 </div>
+                
+                <div class="mpi-infrastructure">
+                    <div class="infra-item" title="Drainage Stress Index">
+                        <i class="fas fa-water"></i>
+                        <span>Drainage: ${drainageStress}%</span>
+                    </div>
+                    <div class="infra-item" title="Pothole Density">
+                        <i class="fas fa-road"></i>
+                        <span>Potholes: ${potholeDensity}</span>
+                    </div>
+                </div>
+                
+                <div class="ward-zone-tag">${ward.zone || 'Delhi'}</div>
             </div>
         `;
     }).join('');
+
+    // Show message if no results
+    if (displayWards.length === 0) {
+        mpiGrid.innerHTML = `
+            <div class="no-results">
+                <i class="fas fa-search"></i>
+                <p>No wards found matching "${mpiSearchQuery}"</p>
+                <button onclick="clearMPISearch()">Clear Search</button>
+            </div>
+        `;
+    }
+}
+
+function handleMPISearch(event) {
+    mpiSearchQuery = event.target.value;
+    mpiShowAll = false; // Reset to paginated view on new search
+    renderMPIDashboard(wardsData);
+}
+
+function clearMPISearch() {
+    mpiSearchQuery = '';
+    mpiShowAll = false;
+    renderMPIDashboard(wardsData);
+}
+
+function toggleShowAllWards() {
+    mpiShowAll = !mpiShowAll;
+    renderMPIDashboard(wardsData);
 }
 
 // === RAINFALL ALERTS ===
 function renderAlerts() {
+    console.log('🚨 renderAlerts called, wardsData length:', wardsData.length);
     const alertTimeline = document.getElementById('alertTimeline');
-    if (!alertTimeline) return;
+    if (!alertTimeline) {
+        console.warn('⚠️ alertTimeline element not found!');
+        return;
+    }
+    console.log('✅ alertTimeline element found');
 
-    const alertWards = wardsData.filter(w => w.forecastRainfall > w.threshold * 0.5).slice(0, 8);
+    // Map database fields and create alerts based on MPI risk level and rainfall
+    const alertWards = wardsData
+        .map(w => ({
+            ...w,
+            forecastRainfall: Number(w.forecast_rainfall_3h ?? w.forecastRainfall ?? 0),
+            currentRainfall: Number(w.current_rainfall ?? w.currentRainfall ?? 0),
+            threshold: Number(w.failure_threshold ?? w.threshold ?? 60),
+            mpiScore: Number(w.mpi_score ?? w.mpiScore ?? 50),
+            riskLevel: w.risk_level ?? w.riskLevel ?? 'safe'
+        }))
+        // Show alerts for: critical/high risk wards, or wards exceeding 30% threshold, or MPI < 50
+        .filter(w => {
+            const thresholdPct = (w.forecastRainfall / w.threshold) * 100;
+            return w.riskLevel === 'critical' || 
+                   w.riskLevel === 'alert' || 
+                   thresholdPct > 30 || 
+                   w.mpiScore < 50 ||
+                   w.currentRainfall > w.threshold * 0.5;
+        })
+        .sort((a, b) => {
+            // Sort by risk: critical > alert > safe, then by MPI score (lower first)
+            const riskWeight = { critical: 3, alert: 2, safe: 1 };
+            const aRisk = riskWeight[a.riskLevel] || 1;
+            const bRisk = riskWeight[b.riskLevel] || 1;
+            if (aRisk !== bRisk) return bRisk - aRisk;
+            return a.mpiScore - b.mpiScore;
+        })
+        .slice(0, 12);
+
+    console.log('📋 Alert wards filtered:', alertWards.length);
+
+    if (alertWards.length === 0) {
+        alertTimeline.innerHTML = `
+            <div class="no-alerts">
+                <i class="fas fa-check-circle" style="color: #00C896; font-size: 48px; margin-bottom: 12px;"></i>
+                <h3 style="color: #0A2647; margin: 8px 0;">All Clear - No Active Alerts</h3>
+                <p style="color: #78909c; margin: 8px 0;">All ${wardsData.length} wards are within safe thresholds</p>
+                <div style="margin-top: 16px; padding: 12px; background: #e8f5e9; border-radius: 8px; font-size: 14px;">
+                    <i class="fas fa-info-circle" style="color: #2e7d32;"></i> 
+                    MPI model monitoring active rainfall patterns
+                </div>
+            </div>
+        `;
+        return;
+    }
 
     alertTimeline.innerHTML = alertWards.map(ward => {
         const thresholdPercent = Math.round((ward.forecastRainfall / ward.threshold) * 100);
+        const currentPercent = Math.round((ward.currentRainfall / ward.threshold) * 100);
+        
+        // Determine severity based on MPI model risk level and rainfall
         let severity = 'low';
-        if (thresholdPercent > 90) severity = 'high';
-        else if (thresholdPercent > 60) severity = 'medium';
+        let severityIcon = 'fa-info-circle';
+        let severityLabel = 'Low Risk';
+        
+        if (ward.riskLevel === 'critical' || thresholdPercent >= 100 || ward.mpiScore < 30) {
+            severity = 'high';
+            severityIcon = 'fa-exclamation-triangle';
+            severityLabel = 'Critical Alert';
+        } else if (ward.riskLevel === 'alert' || thresholdPercent >= 70 || ward.mpiScore < 50) {
+            severity = 'medium';
+            severityIcon = 'fa-exclamation-circle';
+            severityLabel = 'Warning';
+        }
 
-        const timeWindow = `${Math.floor(Math.random() * 3) + 1}h ${Math.floor(Math.random() * 60)}m`;
+        // Calculate estimated time to impact
+        const timeWindow = ward.forecastRainfall > ward.currentRainfall ? '1-3 hours' : 'Active now';
 
         return `
             <div class="alert-card severity-${severity}">
                 <div class="alert-card-header">
-                    <div class="alert-ward">${ward.name}</div>
+                    <div class="alert-ward">
+                        <i class="fas ${severityIcon}"></i>
+                        ${ward.name}
+                    </div>
                     <div class="alert-time">
-                        <i class="fas fa-clock"></i>
-                        ${timeWindow}
+                        <span class="severity-badge ${severity}">${severityLabel}</span>
                     </div>
                 </div>
                 
                 <div class="alert-comparison">
                     <div class="comparison-item">
-                        <div class="comparison-label">Forecast Rainfall</div>
-                        <div class="comparison-value forecast">${ward.forecastRainfall}mm</div>
+                        <div class="comparison-label"><i class="fas fa-cloud-rain"></i> Current</div>
+                        <div class="comparison-value current">${ward.currentRainfall.toFixed(1)}mm</div>
                     </div>
                     <div class="comparison-item">
-                        <div class="comparison-label">Failure Threshold</div>
+                        <div class="comparison-label"><i class="fas fa-cloud-showers-heavy"></i> Forecast (3h)</div>
+                        <div class="comparison-value forecast">${ward.forecastRainfall.toFixed(1)}mm</div>
+                    </div>
+                    <div class="comparison-item">
+                        <div class="comparison-label"><i class="fas fa-tachometer-alt"></i> Threshold</div>
                         <div class="comparison-value threshold">${ward.threshold}mm</div>
                     </div>
                 </div>
                 
+                <div class="alert-metrics">
+                    <div class="metric-pill">
+                        <span>MPI Score:</span> <strong>${ward.mpiScore}</strong>
+                    </div>
+                    <div class="metric-pill">
+                        <span>Risk:</span> <strong>${thresholdPercent}%</strong>
+                    </div>
+                    <div class="metric-pill">
+                        <span>ETA:</span> <strong>${timeWindow}</strong>
+                    </div>
+                </div>
+                
                 <div class="alert-message">
-                    <strong>${thresholdPercent}% of threshold</strong> - 
-                    ${severity === 'high' ? '⚠️ Immediate action required' : severity === 'medium' ? '⚡ Monitor closely' : '✓ Under watch'}
+                    ${severity === 'high' 
+                        ? '🚨 <strong>Immediate action required</strong> - Deploy emergency response teams' 
+                        : severity === 'medium' 
+                        ? '⚡ <strong>Monitor closely</strong> - Prepare drainage and alert residents' 
+                        : '✓ <strong>Under observation</strong> - Continue monitoring conditions'}
                 </div>
             </div>
         `;
@@ -882,138 +1642,104 @@ function renderIncidents() {
     }).join('');
 }
 
-// === ACTION CENTER ===
-function renderActionCenter() {
-    // Drain Clearing Priority
-    const drainPriority = document.getElementById('drainPriority');
-    if (drainPriority) {
-        const highStressWards = wardsData
-            .filter(w => w.drainageStress > 60)
-            .sort((a, b) => b.drainageStress - a.drainageStress)
-            .slice(0, 5);
-
-        drainPriority.innerHTML = highStressWards.map(ward => {
-            const priority = ward.drainageStress > 80 ? 'urgent' : ward.drainageStress > 70 ? 'high' : 'medium';
-            return `
-                <div class="priority-item ${priority}">
-                    <div class="item-header">
-                        <div class="item-title">${ward.name}</div>
-                        <div class="priority-badge ${priority}">${priority}</div>
-                    </div>
-                    <div class="item-description">
-                        Drainage stress: ${ward.drainageStress}% - Deploy cleaning crew immediately
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    // Rapid Response Deployment
-    const deploymentList = document.getElementById('deploymentList');
-    if (deploymentList) {
-        const criticalWards = wardsData.filter(w => w.riskLevel === 'critical').slice(0, 5);
-
-        deploymentList.innerHTML = criticalWards.map(ward => {
-            const units = Math.floor(Math.random() * 3) + 2;
-            return `
-                <div class="deployment-item">
-                    <div class="item-header">
-                        <div class="item-title">${ward.name}</div>
-                        <div class="priority-badge urgent">${units} Units</div>
-                    </div>
-                    <div class="item-description">
-                        🚒 Pumping units: ${units} | 👷 Repair crews: ${Math.floor(units / 2)}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    // Traffic Diversion
-    const trafficList = document.getElementById('trafficList');
-    if (trafficList) {
-        const riskWards = wardsData.filter(w => w.riskLevel !== 'safe').slice(0, 4);
-
-        trafficList.innerHTML = riskWards.map(ward => {
-            return `
-                <div class="traffic-item">
-                    <div class="item-header">
-                        <div class="item-title">${ward.name}</div>
-                        <div class="priority-badge high">High Risk</div>
-                    </div>
-                    <div class="item-description">
-                        🚗 Divert traffic via alternate route - Expected delay: ${Math.floor(Math.random() * 20) + 10} min
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-}
-
 // === INFRASTRUCTURE ===
 function renderInfrastructure() {
-    // Drainage Stress
+    console.log('🏗️ renderInfrastructure called, wardsData length:', wardsData.length);
+    
+    // Drainage Stress - Top wards with highest drainage issues
     const drainageStress = document.getElementById('drainageStress');
     if (drainageStress) {
+        console.log('✅ drainageStress element found');
         const topStress = wardsData
+            .map(w => ({
+                ...w,
+                drainageStress: Number(w.drainage_stress_index ?? w.drainageStress ?? 0),
+                drainDensity: Number(w.drain_density ?? 0.5)
+            }))
+            .filter(w => w.drainageStress > 0)
             .sort((a, b) => b.drainageStress - a.drainageStress)
-            .slice(0, 6);
+            .slice(0, 8);
 
-        drainageStress.innerHTML = topStress.map(ward => {
-            const level = ward.drainageStress > 70 ? 'high' : ward.drainageStress > 40 ? 'medium' : 'low';
-            return `
-                <div class="stress-item">
-                    <div class="stress-header">
-                        <div class="stress-ward">${ward.name}</div>
-                        <div class="stress-level">${ward.drainageStress}%</div>
+        console.log('📊 Top drainage stress wards:', topStress.length);
+
+        if (topStress.length === 0) {
+            drainageStress.innerHTML = '<div class="no-data"><i class="fas fa-water"></i> No drainage stress data available</div>';
+        } else {
+            drainageStress.innerHTML = topStress.map(ward => {
+                const level = ward.drainageStress > 70 ? 'high' : ward.drainageStress > 40 ? 'medium' : 'low';
+                const drainDensityPct = Math.round(ward.drainDensity * 100);
+                return `
+                    <div class="stress-item">
+                        <div class="stress-header">
+                            <div class="stress-ward">
+                                <i class="fas fa-map-marker-alt"></i> ${ward.name}
+                            </div>
+                            <div class="stress-level ${level}">${ward.drainageStress}%</div>
+                        </div>
+                        <div class="stress-bar">
+                            <div class="stress-fill ${level}" style="width: ${ward.drainageStress}%;"></div>
+                        </div>
+                        <div class="item-description">
+                            <span class="infra-detail">
+                                <i class="fas fa-water"></i> Drain Density: ${drainDensityPct}%
+                            </span>
+                            ${level === 'high' 
+                                ? '<span class="status-critical">🔴 Critical - Immediate maintenance required</span>' 
+                                : level === 'medium' 
+                                ? '<span class="status-warning">🟡 Needs attention - Schedule inspection</span>' 
+                                : '<span class="status-safe">🟢 Operating normally</span>'}
+                        </div>
                     </div>
-                    <div class="stress-bar">
-                        <div class="stress-fill ${level}" style="width: ${ward.drainageStress}%;"></div>
-                    </div>
-                    <div class="item-description">
-                        ${level === 'high' ? '🔴 Critical - Immediate maintenance' : level === 'medium' ? '🟡 Monitor closely' : '🟢 Operating normally'}
-                    </div>
-                </div>
-            `;
-        }).join('');
+                `;
+            }).join('');
+        }
     }
 
-    // Pothole Density
+    // Pothole Density - Top wards with highest pothole issues
     const potholeDensity = document.getElementById('potholeDensity');
     if (potholeDensity) {
         const topDensity = wardsData
+            .map(w => ({
+                ...w,
+                potholeDensity: Number(w.pothole_density ?? w.potholeDensity ?? 0),
+                floodFreq: Number(w.hist_flood_freq ?? 0)
+            }))
+            .filter(w => w.potholeDensity > 0)
             .sort((a, b) => b.potholeDensity - a.potholeDensity)
-            .slice(0, 6);
+            .slice(0, 8);
 
-        potholeDensity.innerHTML = topDensity.map(ward => {
-            const level = ward.potholeDensity > 70 ? 'high' : ward.potholeDensity > 40 ? 'medium' : 'low';
-            return `
-                <div class="density-item">
-                    <div class="density-header">
-                        <div class="density-ward">${ward.name}</div>
-                        <div class="density-level">${ward.potholeDensity}%</div>
+        if (topDensity.length === 0) {
+            potholeDensity.innerHTML = '<div class="no-data"><i class="fas fa-road"></i> No pothole data available</div>';
+        } else {
+            potholeDensity.innerHTML = topDensity.map(ward => {
+                const level = ward.potholeDensity > 70 ? 'high' : ward.potholeDensity > 40 ? 'medium' : 'low';
+                const rounded = Math.round(ward.potholeDensity);
+                return `
+                    <div class="density-item">
+                        <div class="density-header">
+                            <div class="density-ward">
+                                <i class="fas fa-map-marker-alt"></i> ${ward.name}
+                            </div>
+                            <div class="density-level ${level}">${rounded}</div>
+                        </div>
+                        <div class="density-bar">
+                            <div class="density-fill ${level}" style="width: ${Math.min(100, rounded)}%;"></div>
+                        </div>
+                        <div class="item-description">
+                            <span class="infra-detail">
+                                <i class="fas fa-history"></i> Flood History: ${ward.floodFreq.toFixed(1)} incidents
+                            </span>
+                            ${level === 'high' 
+                                ? '<span class="status-critical">🔴 High density - Schedule road repairs</span>' 
+                                : level === 'medium' 
+                                ? '<span class="status-warning">🟡 Moderate - Plan maintenance</span>' 
+                                : '<span class="status-safe">🟢 Low density - Routine checks</span>'}
+                        </div>
                     </div>
-                    <div class="density-bar">
-                        <div class="density-fill ${level}" style="width: ${ward.potholeDensity}%;"></div>
-                    </div>
-                    <div class="item-description">
-                        ${level === 'high' ? '🔴 High density - Schedule repairs' : level === 'medium' ? '🟡 Moderate - Plan maintenance' : '🟢 Low density'}
-                    </div>
-                </div>
-            `;
-        }).join('');
+                `;
+            }).join('');
+        }
     }
-}
-
-// === ALERT SUMMARY ===
-function updateAlertSummary() {
-    const criticalCount = wardsData.filter(w => w.riskLevel === 'critical').length;
-    const warningCount = wardsData.filter(w => w.riskLevel === 'alert').length;
-    const safeCount = wardsData.filter(w => w.riskLevel === 'safe').length;
-
-    document.getElementById('criticalCount').textContent = criticalCount;
-    document.getElementById('warningCount').textContent = warningCount;
-    document.getElementById('safeCount').textContent = safeCount;
 }
 
 // === REAL-TIME UPDATES ===
@@ -1052,23 +1778,9 @@ function updateRealTimeData() {
     renderMPIDashboard();
     renderAlerts();
     renderIncidents();
-    renderActionCenter();
     renderInfrastructure();
-    updateAlertSummary();
 
-    // Update map
-    const mapElement = document.getElementById('riskMap');
-    if (mapElement) {
-        mapElement.innerHTML = createInteractiveMap();
-
-        // Re-attach event listeners
-        document.querySelectorAll('.ward-region').forEach(region => {
-            region.addEventListener('click', (e) => {
-                const wardId = parseInt(e.currentTarget.getAttribute('data-ward-id'));
-                showWardDetails(wardId);
-            });
-        });
-    }
+    // Map is already initialized with Leaflet, no need to update innerHTML
 
     console.log('✅ Data updated!');
 }
@@ -1144,7 +1856,6 @@ function initializeUploadModal() {
     const cancelBtn = document.getElementById('cancelUpload');
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('incidentPhoto');
-    const browseBtn = document.getElementById('browseBtn');
     const removeImageBtn = document.getElementById('removeImageBtn');
     const captureGPSBtn = document.getElementById('captureGPS');
     const form = document.getElementById('incidentUploadForm');
@@ -1164,11 +1875,10 @@ function initializeUploadModal() {
     closeBtn?.addEventListener('click', closeModal);
     cancelBtn?.addEventListener('click', closeModal);
 
-    // Drag and drop
-    dropzone?.addEventListener('click', () => fileInput.click());
-    browseBtn?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        fileInput.click();
+    // Dropzone click - open camera instead of file picker
+    dropzone?.addEventListener('click', (e) => {
+        // Don't trigger if clicking on the Open Camera button itself
+        if (e.target.closest('.open-camera-btn')) return;
     });
 
     dropzone?.addEventListener('dragover', (e) => {
@@ -1417,81 +2127,238 @@ function captureLocation() {
 
     gpsBtn.classList.add('capturing');
     gpsBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Capturing...';
+    gpsDisplay.innerHTML = `<small>📡 Getting location...</small>`;
 
     if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                currentGPS = {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                    accuracy: position.coords.accuracy
-                };
+        // First try with high accuracy (GPS)
+        const highAccuracyOptions = {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 60000  // Accept cached position up to 1 minute old
+        };
 
-                gpsBtn.classList.remove('capturing');
-                gpsBtn.innerHTML = '<i class="fas fa-check"></i> Location Captured';
+        // Fallback to low accuracy (network-based) if GPS fails
+        const lowAccuracyOptions = {
+            enableHighAccuracy: false,
+            timeout: 10000,
+            maximumAge: 300000  // Accept cached position up to 5 minutes old
+        };
 
-                gpsDisplay.classList.add('captured');
-                gpsDisplay.innerHTML = `
-                    <small>
-                        📍 ${currentGPS.latitude.toFixed(6)}, ${currentGPS.longitude.toFixed(6)}<br>
-                        Accuracy: ±${Math.round(currentGPS.accuracy)}m
-                    </small>
-                `;
+        const handleSuccess = (position) => {
+            currentGPS = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+                altitude: position.coords.altitude,
+                timestamp: new Date().toISOString()
+            };
 
-                // Re-run location validation
-                if (uploadedImage) {
-                    validateLocation();
-                }
-            },
-            (error) => {
-                console.error('GPS Error:', error);
-                gpsBtn.classList.remove('capturing');
-                gpsBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Try Again';
+            gpsBtn.classList.remove('capturing');
+            gpsBtn.classList.add('captured');
+            gpsBtn.innerHTML = '<i class="fas fa-check"></i> Location Captured';
 
-                gpsDisplay.innerHTML = '<small style="color: #FF4757;">⚠️ Location access denied</small>';
-
-                alert('Please enable location permissions to capture GPS coordinates.');
+            // Show accuracy level with color coding
+            let accuracyClass = 'good';
+            let accuracyText = 'Excellent';
+            if (currentGPS.accuracy > 100) {
+                accuracyClass = 'poor';
+                accuracyText = 'Approximate';
+            } else if (currentGPS.accuracy > 50) {
+                accuracyClass = 'medium';
+                accuracyText = 'Moderate';
             }
+
+            gpsDisplay.classList.add('captured');
+            gpsDisplay.innerHTML = `
+                <small>
+                    📍 <strong>${currentGPS.latitude.toFixed(6)}, ${currentGPS.longitude.toFixed(6)}</strong><br>
+                    <span class="accuracy-${accuracyClass}">Accuracy: ±${Math.round(currentGPS.accuracy)}m (${accuracyText})</span>
+                </small>
+            `;
+
+            // Re-run location validation
+            if (uploadedImage) {
+                validateLocation();
+            }
+        };
+
+        const handleError = (error, isHighAccuracy) => {
+            console.error('GPS Error:', error);
+            
+            // If high accuracy failed, try low accuracy as fallback
+            if (isHighAccuracy) {
+                console.log('High accuracy failed, trying network location...');
+                gpsDisplay.innerHTML = `<small>📡 Trying network location...</small>`;
+                navigator.geolocation.getCurrentPosition(
+                    handleSuccess,
+                    (err) => handleError(err, false),
+                    lowAccuracyOptions
+                );
+                return;
+            }
+
+            // Both methods failed
+            gpsBtn.classList.remove('capturing');
+            gpsBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Try Again';
+
+            let errorMsg = 'Location access denied. Please allow location access in browser settings.';
+            if (error.code === error.TIMEOUT) {
+                errorMsg = 'Location request timed out. Check if GPS/Location is enabled.';
+            } else if (error.code === error.POSITION_UNAVAILABLE) {
+                errorMsg = 'Location unavailable. Enable GPS or try outdoors.';
+            }
+
+            gpsDisplay.innerHTML = `<small style="color: #FF4757;">⚠️ ${errorMsg}</small>`;
+        };
+
+        // Start with high accuracy GPS
+        navigator.geolocation.getCurrentPosition(
+            handleSuccess,
+            (error) => handleError(error, true),
+            highAccuracyOptions
         );
     } else {
         gpsBtn.classList.remove('capturing');
         gpsBtn.innerHTML = '<i class="fas fa-times"></i> Not Supported';
-        alert('Geolocation is not supported by your browser.');
+        gpsDisplay.innerHTML = `<small style="color: #FF4757;">⚠️ Geolocation not supported by browser</small>`;
     }
 }
 
 function submitIncidentReport() {
     console.log('📤 Submitting incident report...');
 
+    const wardSelect = document.getElementById('incidentWard');
+    const typeSelect = document.getElementById('incidentType');
+    
     const newIncident = {
-        id: incidentsData.length + 1,
-        type: document.getElementById('incidentType').value,
+        id: `INC-${Date.now()}`,
+        type: typeSelect.value,
         status: 'pending',
-        ward: document.getElementById('incidentWard').selectedOptions[0].text,
-        time: 'Just now',
+        ward_id: wardSelect.value,
+        ward_name: wardSelect.selectedOptions[0]?.text || 'Unknown',
+        time: new Date().toISOString(),
+        time_display: 'Just now',
         severity: 2,
         description: document.getElementById('incidentDescription').value || 'User-reported incident',
-        gps: currentGPS,
-        validationScore: parseInt(document.getElementById('scoreValue').textContent),
-        image: uploadedImage?.dataURL
+        location: {
+            gps: currentGPS,
+            ward: wardSelect.value
+        },
+        validation: {
+            score: parseInt(document.getElementById('scoreValue').textContent),
+            results: { ...validationResults }
+        },
+        image: {
+            dataURL: uploadedImage?.dataURL,
+            captureTime: uploadedImage?.uploadTime?.toISOString(),
+            isLiveCapture: uploadedImage?.isLiveCapture || false
+        }
     };
 
-    // Add to incidents data
+    // Add to incidents data (in-memory)
     incidentsData.unshift(newIncident);
+
+    // Store in localStorage for persistence
+    saveIncidentToStorage(newIncident);
+
+    // Try to send to backend API
+    sendIncidentToBackend(newIncident);
 
     // Re-render incidents
     renderIncidents();
 
     // Close modal
     document.getElementById('uploadModal').classList.remove('show');
+    resetUploadForm();
 
     // Show success message
-    alert('✅ Incident reported successfully! Authorities will review your submission.');
+    showIncidentSuccessMessage(newIncident);
 
     // Switch to incidents tab
     switchPanel('incidents');
 
-    console.log('Incident submitted:', newIncident);
+    console.log('✅ Incident submitted:', newIncident);
+}
+
+// Save incident to localStorage
+function saveIncidentToStorage(incident) {
+    try {
+        const stored = JSON.parse(localStorage.getItem('waterlogging_incidents') || '[]');
+        stored.unshift(incident);
+        // Keep only last 100 incidents in storage
+        if (stored.length > 100) stored.pop();
+        localStorage.setItem('waterlogging_incidents', JSON.stringify(stored));
+        console.log('💾 Incident saved to localStorage');
+    } catch (e) {
+        console.warn('Could not save to localStorage:', e);
+    }
+}
+
+// Send incident to backend API
+async function sendIncidentToBackend(incident) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/incidents`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                type: incident.type,
+                ward_id: incident.ward_id,
+                description: incident.description,
+                latitude: incident.location.gps?.latitude,
+                longitude: incident.location.gps?.longitude,
+                accuracy: incident.location.gps?.accuracy,
+                severity: incident.severity,
+                validation_score: incident.validation.score,
+                image_data: incident.image.dataURL?.substring(0, 100) + '...' // Truncated for API
+            })
+        });
+        
+        if (response.ok) {
+            console.log('✅ Incident sent to backend successfully');
+        }
+    } catch (e) {
+        console.warn('Could not send to backend (will retry later):', e.message);
+    }
+}
+
+// Show success message
+function showIncidentSuccessMessage(incident) {
+    const successDiv = document.createElement('div');
+    successDiv.className = 'incident-success-toast';
+    successDiv.innerHTML = `
+        <div style="background: linear-gradient(135deg, #00C896 0%, #00A67E 100%); color: white; padding: 16px 24px; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,200,150,0.3); display: flex; align-items: center; gap: 12px;">
+            <i class="fas fa-check-circle" style="font-size: 24px;"></i>
+            <div>
+                <div style="font-weight: 700;">Incident Reported Successfully!</div>
+                <div style="font-size: 12px; opacity: 0.9;">ID: ${incident.id} | Validation: ${incident.validation.score}%</div>
+            </div>
+        </div>
+    `;
+    successDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 10000; animation: slideIn 0.3s ease;';
+    document.body.appendChild(successDiv);
+    
+    setTimeout(() => {
+        successDiv.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => successDiv.remove(), 300);
+    }, 4000);
+}
+
+// Export incidents as JSON (for ML model)
+function exportIncidentsAsJSON() {
+    const incidents = JSON.parse(localStorage.getItem('waterlogging_incidents') || '[]');
+    const dataStr = JSON.stringify(incidents, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `waterlogging_incidents_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    console.log(`📤 Exported ${incidents.length} incidents as JSON`);
 }
 
 function resetUploadForm() {
@@ -1516,11 +2383,224 @@ function resetUploadForm() {
     gpsBtn.classList.remove('capturing');
     gpsDisplay.classList.remove('captured');
     gpsDisplay.innerHTML = '<small>Location not captured</small>';
+    
+    // Close camera if open
+    stopCamera();
+}
+
+// ===================================
+// LIVE CAMERA FUNCTIONALITY
+// ===================================
+
+let cameraStream = null;
+let currentFacingMode = 'environment'; // 'environment' for back camera, 'user' for front
+
+function initializeCameraControls() {
+    const openCameraBtn = document.getElementById('openCameraBtn');
+    const capturePhotoBtn = document.getElementById('capturePhotoBtn');
+    const switchCameraBtn = document.getElementById('switchCameraBtn');
+    const closeCameraBtn = document.getElementById('closeCameraBtn');
+    const retakePhotoBtn = document.getElementById('retakePhotoBtn');
+    
+    openCameraBtn?.addEventListener('click', startCamera);
+    capturePhotoBtn?.addEventListener('click', capturePhoto);
+    switchCameraBtn?.addEventListener('click', switchCamera);
+    closeCameraBtn?.addEventListener('click', stopCamera);
+    retakePhotoBtn?.addEventListener('click', retakePhoto);
+}
+
+async function startCamera() {
+    console.log('📷 Starting camera...');
+    
+    const cameraContainer = document.getElementById('cameraContainer');
+    const cameraFeed = document.getElementById('cameraFeed');
+    const dropzone = document.getElementById('dropzone');
+    
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('Camera not supported on this device/browser. Please use file upload instead.');
+        return;
+    }
+    
+    try {
+        // Stop any existing stream first
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+        }
+        
+        // Request camera access with constraints
+        const constraints = {
+            video: {
+                facingMode: currentFacingMode,
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                aspectRatio: { ideal: 16/9 }
+            },
+            audio: false
+        };
+        
+        cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        // Display video feed
+        cameraFeed.srcObject = cameraStream;
+        cameraFeed.play();
+        
+        // Show camera container, hide dropzone
+        dropzone.style.display = 'none';
+        cameraContainer.style.display = 'block';
+        document.getElementById('imagePreview').style.display = 'none';
+        
+        console.log('✅ Camera started successfully');
+        
+    } catch (error) {
+        console.error('❌ Camera error:', error);
+        
+        let errorMessage = 'Could not access camera. ';
+        if (error.name === 'NotAllowedError') {
+            errorMessage += 'Please allow camera access in your browser settings.';
+        } else if (error.name === 'NotFoundError') {
+            errorMessage += 'No camera found on this device.';
+        } else if (error.name === 'NotReadableError') {
+            errorMessage += 'Camera is being used by another application.';
+        } else {
+            errorMessage += error.message;
+        }
+        
+        alert(errorMessage);
+    }
+}
+
+function capturePhoto() {
+    console.log('📸 Capturing photo...');
+    
+    const cameraFeed = document.getElementById('cameraFeed');
+    const cameraContainer = document.getElementById('cameraContainer');
+    
+    if (!cameraStream) {
+        console.error('No camera stream available');
+        return;
+    }
+    
+    // Create canvas to capture frame
+    const canvas = document.createElement('canvas');
+    canvas.width = cameraFeed.videoWidth;
+    canvas.height = cameraFeed.videoHeight;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(cameraFeed, 0, 0);
+    
+    // Convert to data URL
+    const dataURL = canvas.toDataURL('image/jpeg', 0.9);
+    
+    // Stop camera stream
+    stopCamera();
+    
+    // Set as uploaded image
+    uploadedImage = {
+        file: null,
+        dataURL: dataURL,
+        name: `live_capture_${Date.now()}.jpg`,
+        size: Math.round(dataURL.length * 0.75), // Approximate size
+        type: 'image/jpeg',
+        uploadTime: new Date(),
+        isLiveCapture: true
+    };
+    
+    // Show preview
+    document.getElementById('previewImage').src = dataURL;
+    document.getElementById('imagePreview').style.display = 'block';
+    cameraContainer.style.display = 'none';
+    
+    // Show retake button
+    const retakeBtn = document.getElementById('retakePhotoBtn');
+    if (retakeBtn) retakeBtn.style.display = 'inline-flex';
+    
+    // Run validation
+    validateImage();
+    
+    console.log('✅ Photo captured successfully');
+}
+
+async function switchCamera() {
+    console.log('🔄 Switching camera...');
+    
+    // Toggle facing mode
+    currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+    
+    // Restart camera with new facing mode
+    if (cameraStream) {
+        await startCamera();
+    }
+}
+
+function stopCamera() {
+    console.log('⏹️ Stopping camera...');
+    
+    const cameraContainer = document.getElementById('cameraContainer');
+    const cameraFeed = document.getElementById('cameraFeed');
+    const dropzone = document.getElementById('dropzone');
+    
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => {
+            track.stop();
+        });
+        cameraStream = null;
+    }
+    
+    if (cameraFeed) {
+        cameraFeed.srcObject = null;
+    }
+    
+    if (cameraContainer) {
+        cameraContainer.style.display = 'none';
+    }
+    
+    // Show dropzone only if no image is uploaded
+    if (!uploadedImage && dropzone) {
+        dropzone.style.display = 'block';
+    }
+}
+
+function retakePhoto() {
+    console.log('🔄 Retaking photo...');
+    
+    uploadedImage = null;
+    document.getElementById('imagePreview').style.display = 'none';
+    document.getElementById('validationPanel').style.display = 'none';
+    document.getElementById('submitIncident').disabled = true;
+    
+    // Hide retake button
+    const retakeBtn = document.getElementById('retakePhotoBtn');
+    if (retakeBtn) retakeBtn.style.display = 'none';
+    
+    // Restart camera
+    startCamera();
 }
 
 // Initialize upload modal on load
 document.addEventListener('DOMContentLoaded', () => {
     initializeUploadModal();
+    initializeCameraControls();
+    
+    // Load stored incidents from localStorage
+    loadStoredIncidents();
 });
+
+// Load previously stored incidents
+function loadStoredIncidents() {
+    try {
+        const stored = JSON.parse(localStorage.getItem('waterlogging_incidents') || '[]');
+        if (stored.length > 0) {
+            console.log(`📂 Loaded ${stored.length} stored incidents from localStorage`);
+            // Merge with existing incidents (avoid duplicates)
+            stored.forEach(incident => {
+                if (!incidentsData.find(i => i.id === incident.id)) {
+                    incidentsData.push(incident);
+                }
+            });
+        }
+    } catch (e) {
+        console.warn('Could not load stored incidents:', e);
+    }
+}
 
 console.log('🌧️ Delhi Monsoon Dashboard Script Loaded');

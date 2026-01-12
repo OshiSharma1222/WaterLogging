@@ -1,0 +1,124 @@
+Ward No. Ward Name,Zone Name,Ward No.,Ward Name,Zone Name
+1 NARELA,Narela,117,DABRI,Najafgarh Zone
+2 BANKNER,Narela,118,SAGARPUR,Najafgarh Zone
+3 HOLAMBI KALAN,Narela,119,MANGLAPURI,Najafgarh Zone
+4 ALIPUR,Narela,120,DWARKA-B,Najafgarh Zone
+5 BAKHTAWARPUR,Narela,121,DWARKA-A,Najafgarh Zone
+26 POOTH KALAN,Narela,122,MATIALA,Najafgarh Zone
+27 BEGUMPUR,Narela,123,KAKROLA,Najafgarh Zone
+28 SHAHBAAD DAIRY,Narela,124,NANGLI SAKRAWATI,Najafgarh Zone
+29 POOTH KHURD,Narela,125,CHHAWALA,Najafgarh Zone
+30 BAWANA,Narela,126,ISAPUR,Najafgarh Zone
+31 NANGAL THAKRAN,Narela,,,
+32 KANJHAWALA,Narela,129,ROSHAN PURA,Najafgarh Zone
+33 RANI KHERA,Narela,130,DWARKA-C,Najafgarh Zone
+34 NANGLOI,Narela,131,BIJWASAN,Najafgarh Zone
+35 MUNDKA,Narela,132,KAPASHERA,Najafgarh Zone
+36 NILOTHI,Narela,133,MAHIPALPUR,Najafgarh Zone
+6 BURARI,Civil Line,134,RAJ NAGAR,Najafgarh Zone
+7 KADIPUR,Civil Line,135,PALAM,Najafgarh Zone
+8 MUKUNDPUR,Civil Line,136,MADHU VIHAR,Najafgarh Zone
+9 SANT NAGAR,Civil Line,137,MAHAVIR ENCLAVE,Najafgarh Zone
+10 JHARODA,Civil Line,,,
+11 TIMARPUR,Civil Line,143,SIDHARTHA NAGAR,Central Zone
+12 MALKA GANJ,Civil Line,144,LAJPAT NAGAR,Central Zone
+13 MUKHERJEE NAGAR,Civil Line,145,ANDREWS GANJ,Central Zone
+14 DHIRPUR,Civil Line,146,AMAR COLONY,Central Zone
+15 ADARSH NAGAR,Civil Line,147,KOTLA MUBARAKPUR,Central Zone
+16 AZADPUR,Civil Line,168,SANGAM VIHAR-C,Central Zone
+17 BHALSWA,Civil Line,169,SANGAM VIHAR-B,Central Zone
+18 JAHANGIR PURI,Civil Line,170,TUGHLAKABAD EXTENSION,Central Zone
+19 SARUP NAGAR,Civil Line,174,SRI NIWAS PURI,Central Zone
+20 Central Zone21 SAMAYPUR BADLI ROHINI-A,Civil Line Rohini,175 176 177,KALKAJI GOVIND PURI HARKESH NAGAR,Central ZoneCentral Zone
+22 ROHINI-B,Rohini,178,TUGHLAKABAD,Central Zone
+23 RITHALA,Rohini,179,PUL PEHLADPUR,Central Zone
+24 VIJAY VIHAR,Rohini,180,BADARPUR,Central Zone
+25 BUDH VIHAR,Rohini,181,MOLARBAND,Central Zone
+37 KIRARI,Rohini,182,MEETHAPUR,Central Zone
+38 PREM NAGAR,Rohini,183,HARI NAGAR EXTENSION,Central Zone
+39 MUBARIKPUR,Rohini,184,JAITPUR,Central Zone
+40 NITHARI,Rohini,185,MADANPUR KHADAR EAST,Central Zone
+41 AMAN VIHAR,Rohini,186,MADANPUR KHADAR WEST,Central Zone
+42 MANGOL PURI,Rohini,,,
+
+43 SULTANPURI-A,Rohini,189,ZAKIR NAGAR,Central Zone
+44 SULTANPURI-B,Rohini,148,HAUZ KHAS,South Zone
+45 JAWALAPURI,Rohini,149,MALVIYA NAGAR,South Zone
+46 NANGLOI JAT,Rohini,150,GREEN PARK,South Zone
+47 NIHAL VIHAR,Rohini,151,MUNIRKA,South Zone
+48 GURU HARKISHAN NAGAR,Rohini,152,R.K. PURAM,South Zone
+49 MANGOLPURI-A,Rohini,153,VASANT VIHAR,South Zone
+50 MANGOLPURI-B,Rohini,154,LADO SARAI,South Zone
+51 ROHINI-C,Rohini,155,MEHRAULI,South Zone
+52 South Zone53 ROHINI-E ROHINI-F,Rohini Rohini,156 157 158,VASANT KUNJ AYA NAGAR BHATI,South ZoneSouth Zone
+54 ROHINI-D,Rohini,159,CHHATARPUR,South Zone
+55 SHALIMAR BAGH-A,Keshavpuram,160,SAID-UL-AJAIB,South Zone
+56 SHALIMAR BAGH-B,Keshavpuram,161,DEOLI,South Zone
+57 PITAM PURA,Keshavpuram,162,TIGRI,South Zone
+58 SARASWATI VIHAR,Keshavpuram,163,SANGAM VIHAR-A,South Zone
+59 PASCHIM VIHAR,Keshavpuram,164,DAKSHIN PURI,South Zone
+60 RANI BAGH,Keshavpuram,165,MADANGIR,South Zone
+61 KOHAT ENCLAVE,Keshavpuram,166,PUSHP VIHAR,South Zone
+62 SHAKUR PUR,Keshavpuram,167,KHANPUR,South Zone
+63 TRI NAGAR,Keshavpuram,,,
+"",,171,CHITARANJAN PARK,South Zone
+"",,172,CHIRAG DELHI,South Zone
+64 KESHAV PURAM,Keshavpuram,173,GREATER KAILASH,South Zone
+65 ASHOK VIHAR,Keshavpuram,190,NEW ASHOK NAGAR Shahdara South Zone,
+66 WAZIR PUR,Keshavpuram,191,MAYUR VIHAR PHASE-I Shahdara South Zone,
+67 SANGAM PARK,Keshavpuram,192,TRILOKPURI Shahdara South Zone,
+68 MODEL TOWN,Keshavpuram,193,KONDLI Shahdara South Zone,
+69 KAMLA NAGAR,Keshavpuram,194,GHAROLI Shahdara South Zone,
+70 SHASTRI NAGAR,City S.P.Zone,195,KALYANPURI Shahdara South Zone,
+71 KISHAN GANJ,City S.P.Zone,196,MAYUR VIHAR PHASE-II Shahdara South Zone,
+72 SADAR BAZAR,City S.P.Zone,197,PATPAR GANJ Shahdara South Zone,
+73 CIVIL LINES,City S.P.Zone,,,
+"",,198,VINOD NAGAR Shahdara South Zone,
+"",,199,MANDAWALI Shahdara South Zone,
+74 CHANDNI CHOWK,City S.P.Zone,200,PANDAV NAGAR Shahdara South Zone,
+75 JAMA MASJID,City S.P.Zone,201,LALITA PARK Shahdara South Zone,
+76 CHANDANI MAHAL,City S.P.Zone,202,SHAKARPUR Shahdara South Zone,
+77 DELHI GATE,City S.P.Zone,203,LAXMI NAGAR Shahdara South Zone,
+78 BAZAR SITA RAM,City S.P.Zone,204,PREET VIHAR Shahdara South Zone,
+79 BALLIMARAN,City S.P.Zone,205,I.P. EXTENSION Shahdara South Zone,
+80 RAM NAGAR,City S.P.Zone,206,ANAND VIHAR Shahdara South Zone,
+81 QURAISH NAGAR,City S.P.Zone,207,VISHWAS NAGAR Shahdara South Zone,
+82 PAHAR GANJ,Karolbagh,208,ANARKALI Shahdara South Zone,
+83 KAROL BAGH,Karolbagh,209,JAGAT PURI Shahdara South Zone,
+84 DEV NAGAR,Karolbagh,,,
+85 WEST PATEL NAGAR,Karolbagh,212,GANDHI NAGAR Shahdara South Zone,
+86 EAST PATEL NAGAR,Karolbagh,213,SHASTRI PARK Shahdara South Zone,
+87 RANJEET NAGAR,Karolbagh,214,AZAD NAGAR Shahdara South Zone,
+88 BALJEET NAGAR,Karolbagh,215,SHAHDARA Shahdara South Zone,
+89 KARAM PURA,Karolbagh,216,JHILMIL Shahdara North Zone,
+90 MOTI NAGAR,Karolbagh,217,DILSHAD COLONY Shahdara North Zone,
+91 RAMESH NAGAR,Karolbagh,218,SUNDAR NAGRI Shahdara North Zone,
+139 NARAINA,Karolbagh,219,DILSHAD GARDEN Shahdara North Zone,
+140 INDER PURI,Karolbagh,220,NAND NAGRI Shahdara North Zone,
+141 RAJINDER NAGAR,Karolbagh,,,,
+92 PUNJABI BAGH,West Zone,223,ROHTASH NAGAR Shahdara North Zone,
+93 MADIPUR,West Zone,224,WELCOME COLONY Shahdara North Zone,
+94 RAGHUBIR NAGAR,West Zone,225,SEELAMPUR Shahdara North Zone,
+95 VISHNU GARDEN,West Zone,226,GAUTAM PURI Shahdara North Zone,
+96 RAJOURI GARDEN,West Zone,227,CHAUHAN BANGER Shahdara North Zone,
+97 CHAUKHANDI NAGAR,West Zone,228,MAUJPUR Shahdara North Zone,
+98 SUBHASH NAGAR,West Zone,229,BRAHAM PURI Shahdara North Zone,
+99 HARI NAGAR,West Zone,230,BHAJANPURA Shahdara North Zone,
+100 FATEH NAGAR,West Zone,231,GHONDA Shahdara North Zone,
+101 Shahdara North Zone102 TILAK NAGAR KHYALA,West Zone,
+103 KESHOPUR,West Zone,235,GORAKH PARK Shahdara North Zone,
+104 JANAK PURI SOUTH,West Zone,236,KARDAM PURI Shahdara North Zone,
+105 MAHAVEER ENCLAVE,West Zone,237,HARSH VIHAR Shahdara North Zone,
+106 JANAK PURI WEST,West Zone,238,SABOLI Shahdara North Zone,
+107 VIKAS PURI,West Zone,239,GOKAL PURI Shahdara North Zone,
+108 HASTSAL,West Zone,240,JOHARIPUR Shahdara North Zone,
+109 VIKAS NAGAR,West Zone,241,KARAWAL NAGAR-EAST Shahdara North Zone,
+110 KUNWAR SINGH NAGAR,West Zone,242,DAYALPUR Shahdara North Zone,
+111 BAPROLA,West Zone,243,MUSTAFABAD Shahdara North Zone,
+112 SAINIK ENCLAVE,West Zone,,,
+"",,244,NEHRU VIHAR Shahdara North Zone,
+"",,245,BRIJ PURI Shahdara North Zone,
+113 MOHAN GARDEN,West Zone,246,SRI RAM COLONY Shahdara North Zone,
+114 NAWADA,West Zone,247,SADATPUR Shahdara North Zone,
+115 UTTAM NAGAR,West Zone,248,KARAWAL NAGAR-WEST Shahdara North Zone,
+116 BINDA PUR,West Zone,249 250,SONIA VIHAR SABAPUR Shahdara North ZoneShahdara North Zone,
